@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Desactiva la variante automática por hardware/media query de Tailwind v4 */
+/* Exige la clase CSS .dark explícita en la etiqueta <html> */
+@variant dark (&:where(.dark, .dark *));
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans"), local("DeskSans-Regular");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans Medium"), local("DeskSans-Medium");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans Bold"), local("DeskSans-Bold");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans ExtraBold"), local("DeskSans-ExtraBold"), local("Desk Sans Bold");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Desk Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Estilos personalizados para la paginación de Pagy */
+.pagy {
+  @apply flex items-center justify-center space-x-1 font-semibold text-sm text-gray-500 my-4;
+}
+
+.pagy a:not(.gap) {
+  @apply block rounded-xl px-3 py-1.5 bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 hover:text-black;
+}
+
+.pagy a:not([href]) {
+  @apply text-gray-300 bg-gray-50 cursor-not-allowed hover:bg-gray-50 hover:text-gray-300;
+}
+
+.pagy a.current {
+  @apply text-white bg-black pointer-events-none hover:bg-black hover:text-white;
+}
+
+.pagy .gap {
+  @apply px-2;
+}

@@ -1,0 +1,41 @@
+<section class="relative flex flex-col md:flex-row items-center justify-between min-h-[85vh] px-6 py-12 md:px-20 max-w-7xl mx-auto overflow-hidden min-h-screen">
+  <div class="absolute inset-0 bg-cover bg-center opacity-15 z-0 mix-blend-lighten"
+       style="background-image: url(<%= image_path('problem-bg.webp') %>)"></div>
+  <div class="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 md:flex-row md:items-center md:gap-12">
+    <div class="w-full min-w-0 md:w-1/2">
+      <h2 class="text-pretty break-words text-2xl font-bold leading-snug text-white sm:text-4xl md:text-5xl md:leading-tight">
+        <%= landing_t(:problem_title) %>
+        <span class="mt-1 block text-[#EF4444] sm:mt-0 sm:inline"><%= landing_t(:problem_title_highlight) %></span>
+      </h2>
+      <div class="w-full max-w-xs relative z-10 mx-auto pb-12 mt-10">
+        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center w-full">
+          <%= link_to landing_t(:problem_cta), 
+              @cta_url, 
+              target: "_blank",
+              rel: "noopener noreferrer",
+              class: "flex justify-center items-center px-6 py-4 bg-[#1C5686] hover:bg-sky-400 text-white font-semibold rounded-lg sm:rounded-none transition-colors w-full sm:flex-1 text-center shadow-lg" %>
+        </div>
+      </div>
+    </div>
+
+    <div class="w-full min-w-0 md:w-1/2">
+      <ul class="flex flex-col gap-3 sm:gap-4 md:gap-6">
+        <li class="flex items-start gap-3 rounded-lg border border-gray-800 bg-black/40 p-4 sm:gap-4 sm:p-5">
+          <span class="min-w-0 flex-1 text-pretty break-words text-sm leading-relaxed text-gray-200 sm:text-base md:text-lg">
+            <%= landing_t(:problem_1) %>
+          </span>
+        </li>
+        <li class="flex items-start gap-3 rounded-lg border border-gray-800 bg-black/40 p-4 sm:gap-4 sm:p-5">
+          <span class="min-w-0 flex-1 text-pretty break-words text-sm leading-relaxed text-gray-200 sm:text-base md:text-lg">
+            <%= landing_t(:problem_2) %>
+          </span>
+        </li>
+        <li class="flex items-start gap-3 rounded-lg border border-gray-800 bg-black/40 p-4 sm:gap-4 sm:p-5">
+          <span class="min-w-0 flex-1 text-pretty break-words text-sm leading-relaxed text-gray-200 sm:text-base md:text-lg">
+            <%= landing_t(:problem_3) %>
+          </span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>

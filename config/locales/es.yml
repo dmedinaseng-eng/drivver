@@ -1,0 +1,57 @@
+es:
+  layouts:
+    application:
+      title: "Drivver"
+  navbar:
+    public:
+      login: "Iniciar sesión"
+      logo_alt: "Drivver"
+      menu: "Menú"
+      sellers:
+        cta: "Vender mi vehículo"
+      buyers:
+        cta: "Comprar carro"
+  footer:
+    copyright: "© %{year} Drivver MobilityTech Solutions."
+    brokers_cta: "Únete a nuestra Red: Programa de Brokers Drivver (Aplica aquí)"
+  landing:
+    sellers:
+      hero_title: "TU CARRO COMPLETO"
+      hero_subtitle: "Tu precio, tu paz, siempre"
+      hero_cta: "Verificar si mi vehículo aplica"
+      problem_title: "El mercado tradicional"
+      problem_title_highlight: "expone su patrimonio."
+      problem_cta: "Evitar costo de retoma ahora"
+      problem_1: "¿Sabes cuántos millones pierdes al entregar tu carro al concesionario?"
+      problem_2: "Venderlo por tu cuenta protege tu dinero, pero exige tiempo y seguridad"
+      problem_3: "¿Cómo vas a filtrar compradores sospechosos sin arriesgar tu tranquilidad ni tu casa?"
+      solution_title: "Imaginate un escenario donde:"
+      solution_1: "NO tengas que elegir entre perder plata o perder tranquilidad"
+      solution_2: "Existiera un filtro invisible que garantice el traspaso antes de soltar las llaves"
+      solution_3: "Mientras sigues manejando tu carro todos los días"
+      solution_question: "¿cuál sería el único motivo para no usarlo?"
+      solution_cta: "Conocer el protocolo seguro"
+      closing_title: "TÚ MANTIENES EL CONTROL DE TU VEHÍCULO"
+      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
+      closing_cta: "Garantizar la venta"
+      whatsapp_message: "Hola, quiero conocer más de Drivver y cómo puedo vender mi vehículo de forma segura."
+    buyers:
+      hero_title: "TU PRÓXIMO CARRO"
+      hero_subtitle: "Correcto, al precio real, con total certeza"
+      hero_cta: "Solicitar catálogo verificado"
+      problem_title: "El mercado tradicional"
+      problem_title_highlight: "expone su patrimonio."
+      problem_cta: "Evitar sobreprecio"
+      problem_1: "¿Sabes cuanto estás pagando de más por la sobretasa de su vitrina?"
+      problem_2: "Buscar por tu cuenta te consume tiempo y te deja expuesto a estafas"
+      problem_3: "¿cómo vas a hacer para detectar embargos ocultos, siniestros disfrazados o trampas en el traspaso sin arriesgar tu capital?"
+      solution_title: "Imaginate un escenario donde:"
+      solution_1: "NO tengas que elegir entre pagar sobreprecios o comprar a ciegas"
+      solution_2: "Un filtro técnico y legal cierre el riesgo antes de soltar el dinero"
+      solution_3: "Mientras tú decides con datos, no con presión"
+      solution_question: "¿cuál sería el único motivo para no usarlo?"
+      solution_cta: "Conocer el protocolo seguro"
+      closing_title: "Tu presupuesto y la seguridad de tu familia no se negocian"
+      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
+      closing_cta: "Solicitar auditoría de compra"
+      whatsapp_message: "Hola, quiero conocer más de Drivver para comprar un vehículo."

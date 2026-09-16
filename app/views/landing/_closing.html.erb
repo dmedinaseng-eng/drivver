@@ -1,0 +1,18 @@
+<section class="relative min-h-screen flex flex-col justify-center px-6 py-24 bg-[#0E1925] text-center overflow-hidden">
+  <div class="absolute inset-0 bg-cover bg-center opacity-40 z-0"
+       style="background-image: url(<%= image_path('motion-blur-red-lights.webp') %>)"></div>
+  <div class="absolute inset-0 bg-gradient-to-t from-[#0E1925] via-transparent to-[#0E1925] z-0 opacity-80"></div>
+  <div class="w-full max-w-3xl mx-auto relative z-10">
+    <h1 class="text-3xl md:text-4xl font-bold mb-6"><%= landing_t(:closing_title) %></h1>
+    <p class="text-lg text-gray-300 mb-10"><%= landing_t(:closing_subtitle) %></p>
+    <div class="w-full max-w-xs relative z-10 mx-auto pb-12 mt-10">
+      <div class="flex flex-col sm:flex-row gap-4 justify-center items-center w-full">
+        <%= link_to landing_t(:closing_cta), 
+            @cta_url, 
+            target: "_blank",
+            rel: "noopener noreferrer",
+            class: "flex justify-center items-center px-6 py-4 bg-[#1C5686] hover:bg-sky-400 text-white font-semibold rounded-lgsm:rounded-none transition-colors w-full sm:flex-1 text-center shadow-lg" %>
+      </div>
+    </div>
+  </div>
+</section>

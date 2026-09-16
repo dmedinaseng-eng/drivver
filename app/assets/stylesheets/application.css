@@ -8,3 +8,24 @@
  *
  * Consider organizing styles into separate files for maintainability.
  */
+ /* @import "tailwindcss"; */
+
+ @layer utilities {
+    /* Protecciones de impresión y selección */
+    .no-copy {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+  }
+  
+  @media print {
+    body {
+      display: none !important;
+    }
+  }
+  
+  dialog::backdrop {
+    background-color: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+  }

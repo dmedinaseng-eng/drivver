@@ -1,0 +1,22 @@
+<% if flash.any? %>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+    <% flash.each do |type, message| %>
+      <% is_error = (type.to_s == 'alert' || type.to_s == 'error') %>
+      <% bg_color = is_error ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200' %>
+      
+      <div data-controller="flash" 
+           class="p-4 rounded-2xl border <%= bg_color %> flex items-center justify-between shadow-sm mb-4 transition-all duration-500">
+        <div class="flex items-center gap-2 text-xs sm:text-sm font-bold">
+          <span><%= is_error ? '⚠️' : '✅' %></span>
+          <span><%= message %></span>
+        </div>
+        
+        <button data-action="click->flash#dismiss" 
+                type="button" 
+                class="text-xs font-black opacity-60 hover:opacity-100 cursor-pointer">
+          ✕
+        </button>
+      </div>
+    <% end %>
+  </div>
+<% end %>
