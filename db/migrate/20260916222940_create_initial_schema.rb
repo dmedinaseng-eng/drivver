@@ -15,7 +15,7 @@ class CreateInitialSchema < ActiveRecord::Migration[7.1]
       t.string :phone_country_code, null: false
       t.string :phone_number, null: false
       t.string :theme, null: false, default: 'light'
-      
+
       # Pundit / Global Auth Enum (0: standard, 1: super_admin, 2: developer, 3: c_level)
       t.integer :global_role, null: false, default: 0
 
@@ -39,10 +39,10 @@ class CreateInitialSchema < ActiveRecord::Migration[7.1]
 
     add_index :users, :email, unique: true
     add_index :users, :reset_password_token, unique: true
-    add_index :users, [:provider, :uid], unique: true
+    add_index :users, [ :provider, :uid ], unique: true
     add_index :users, :phone_number, unique: true
-    add_index :users, [:id_number, :id_type], unique: true, name: 'idx_users_id_number_type'
-    add_index :users, [:id_number, :phone_number, :email], name: 'idx_users_search'
+    add_index :users, [ :id_number, :id_type ], unique: true, name: 'idx_users_id_number_type'
+    add_index :users, [ :id_number, :phone_number, :email ], name: 'idx_users_search'
 
     create_table :families do |t|
       t.string :name, null: false
@@ -149,7 +149,7 @@ class CreateInitialSchema < ActiveRecord::Migration[7.1]
 
     create_table :events do |t|
       t.references :vehicle, null: false, foreign_key: { on_delete: :cascade }
-      t.references :organization, foreign_key: { on_delete: :nullify } 
+      t.references :organization, foreign_key: { on_delete: :nullify }
       t.references :user, null: false, foreign_key: { on_delete: :restrict }
       t.string :event_type, null: false
       t.string :status, null: false
@@ -241,7 +241,7 @@ class CreateInitialSchema < ActiveRecord::Migration[7.1]
     add_index :vehicles, :plate
     add_index :vehicles, :chasis_id
     add_index :vehicles, :motor_id
-    add_index :vehicles, [:brand, :model] # Índice compuesto para filtros por marca y modelo
+    add_index :vehicles, [ :brand, :model ] # Índice compuesto para filtros por marca y modelo
     add_index :vehicles, :vehicle_type
 
     # Deals (Filtros en el tablero/CRM del dealership)
