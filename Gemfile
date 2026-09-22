@@ -70,7 +70,7 @@ gem "groupdate", "~> 6.8"
 
 gem "aasm", "~> 6.0"
 
-gem "aws-sdk-s3", "~> 1.229"
+gem "aws-sdk-s3", "~> 1.232"
 
 gem "pagy"
 gem "pundit"
