@@ -7,6 +7,8 @@ es:
       login: "Iniciar sesión"
       logo_alt: "Drivver"
       menu: "Menú"
+      cta: "Contáctanos"
+      whatsapp_message: "Hola, quiero contactar a Drivver."
       sellers:
         cta: "Vender mi vehículo"
       buyers:
