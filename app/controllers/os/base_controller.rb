@@ -9,6 +9,8 @@ class Os::BaseController < ::ApplicationController
   
       rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
 
+      helper_method :operating_as_super_admin?
+
       protected
 
         def configure_permitted_parameters
@@ -39,5 +41,9 @@ class Os::BaseController < ::ApplicationController
         def user_not_authorized
           flash[:alert] = "Tu plan actual no incluye esta funcionalidad o no tienes permisos."
           redirect_to(request.referrer || os_root_path)
+        end
+
+        def operating_as_super_admin?
+          current_user&.super_admin? || current_user&.developer?
         end
 end

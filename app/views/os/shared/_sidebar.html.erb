@@ -1,0 +1,23 @@
+<nav data-controller="sidebar" 
+     class="fixed z-50 flex transition-all duration-300 ease-in-out
+            bg-white text-[#0E1925] dark:bg-[#0A0A0A] dark:text-white
+            bottom-0 w-full h-16 flex-row justify-around items-center
+            shadow-[0_-4px_20px_rgba(14,25,37,0.05)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]
+            md:top-0 md:left-0 md:h-screen md:flex-col md:justify-start
+            md:shadow-[4px_0_24px_rgba(14,25,37,0.06)] md:dark:shadow-[4px_0_24px_rgba(0,0,0,0.4)]
+            md:w-64"  
+     data-sidebar-target="container">
+  <% if operating_as_super_admin? %>
+    <div class="absolute top-0 left-0 w-full h-1 bg-[#EF4444] md:w-1 md:h-full md:left-auto md:right-0 opacity-80 z-10"></div>
+  <% end %>
+  <div class="hidden md:flex items-center justify-between w-full p-4 h-16 bg-transparent shrink-0">
+    <%= render 'os/shared/sidebar_logos' %>
+    <button type="button" data-action="click->sidebar#toggle" class="p-1.5 text-gray-400 hover:text-[#1C5686] dark:hover:text-white transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-[#142436] cursor-pointer" title="Alternar vista de barra lateral">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/>
+      </svg>
+    </button>
+  </div>
+  <%= render 'os/shared/sidebar_nav_menu' %>
+  <%= render 'os/shared/sidebar_footer' %>
+</nav>

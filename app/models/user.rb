@@ -7,6 +7,8 @@ class User < ApplicationRecord
   # Enum de roles globales
   enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
 
+  enum :theme, { light: 0, dark: 1 }, default: :light
+
   # Relación para Passkeys (WebAuthn / FIDO2)
   has_many :webauthn_credentials, dependent: :destroy
 
@@ -35,7 +37,7 @@ class User < ApplicationRecord
   def active_subscription
     subscriptions.where(status: 'active').where('expires_at > ?', Date.today).first
   end
-  
+
   def current_plan
     active_subscription&.plan || Plan.find_by(name: 'basic')
   end

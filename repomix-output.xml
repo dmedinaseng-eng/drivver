@@ -85,7 +85,7 @@ app/
     concerns/
       .keep
     os/
-      application_controller.rb
+      base_controller.rb
       dashboards_controller.rb
     users/
       google_id_tokens_controller.rb
@@ -236,6 +236,7 @@ db/
     20260920231315_create_blog_reviews.rb
     20260924152332_create_webauthn_credentials.rb
     20260924170622_change_default_active_on_users.rb
+    20260924183109_set_default_active_true_on_users.rb
   cable_schema.rb
   cache_schema.rb
   queue_schema.rb
@@ -332,6 +333,460 @@ README.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path=".github/dependabot.yml">
+version: 2
+updates:
+- package-ecosystem: bundler
+  directory: "/"
+  schedule:
+    interval: weekly
+  open-pull-requests-limit: 10
+- package-ecosystem: github-actions
+  directory: "/"
+  schedule:
+    interval: weekly
+  open-pull-requests-limit: 10
+</file>
+
+<file path=".kamal/hooks/docker-setup.sample">
+#!/usr/bin/env sh
+
+echo "Docker set up on $KAMAL_HOSTS..."
+</file>
+
+<file path=".kamal/hooks/post-app-boot.sample">
+#!/usr/bin/env sh
+
+echo "Booted app version $KAMAL_VERSION on $KAMAL_HOSTS..."
+</file>
+
+<file path=".kamal/hooks/post-deploy.sample">
+#!/usr/bin/env sh
+
+# A sample post-deploy hook
+#
+# These environment variables are available:
+# KAMAL_RECORDED_AT
+# KAMAL_PERFORMER
+# KAMAL_VERSION
+# KAMAL_HOSTS
+# KAMAL_ROLES (if set)
+# KAMAL_DESTINATION (if set)
+# KAMAL_RUNTIME
+
+echo "$KAMAL_PERFORMER deployed $KAMAL_VERSION to $KAMAL_DESTINATION in $KAMAL_RUNTIME seconds"
+</file>
+
+<file path=".kamal/hooks/post-proxy-reboot.sample">
+#!/usr/bin/env sh
+
+echo "Rebooted kamal-proxy on $KAMAL_HOSTS"
+</file>
+
+<file path=".kamal/hooks/pre-app-boot.sample">
+#!/usr/bin/env sh
+
+echo "Booting app version $KAMAL_VERSION on $KAMAL_HOSTS..."
+</file>
+
+<file path=".kamal/hooks/pre-build.sample">
+#!/usr/bin/env sh
+
+# A sample pre-build hook
+#
+# Checks:
+# 1. We have a clean checkout
+# 2. A remote is configured
+# 3. The branch has been pushed to the remote
+# 4. The version we are deploying matches the remote
+#
+# These environment variables are available:
+# KAMAL_RECORDED_AT
+# KAMAL_PERFORMER
+# KAMAL_VERSION
+# KAMAL_HOSTS
+# KAMAL_ROLES (if set)
+# KAMAL_DESTINATION (if set)
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Git checkout is not clean, aborting..." >&2
+  git status --porcelain >&2
+  exit 1
+fi
+
+first_remote=$(git remote)
+
+if [ -z "$first_remote" ]; then
+  echo "No git remote set, aborting..." >&2
+  exit 1
+fi
+
+current_branch=$(git branch --show-current)
+
+if [ -z "$current_branch" ]; then
+  echo "Not on a git branch, aborting..." >&2
+  exit 1
+fi
+
+remote_head=$(git ls-remote $first_remote --tags $current_branch | cut -f1)
+
+if [ -z "$remote_head" ]; then
+  echo "Branch not pushed to remote, aborting..." >&2
+  exit 1
+fi
+
+if [ "$KAMAL_VERSION" != "$remote_head" ]; then
+  echo "Version ($KAMAL_VERSION) does not match remote HEAD ($remote_head), aborting..." >&2
+  exit 1
+fi
+
+exit 0
+</file>
+
+<file path=".kamal/hooks/pre-connect.sample">
+#!/usr/bin/env ruby
+
+# A sample pre-connect check
+#
+# Warms DNS before connecting to hosts in parallel
+#
+# These environment variables are available:
+# KAMAL_RECORDED_AT
+# KAMAL_PERFORMER
+# KAMAL_VERSION
+# KAMAL_HOSTS
+# KAMAL_ROLES (if set)
+# KAMAL_DESTINATION (if set)
+# KAMAL_RUNTIME
+
+hosts = ENV["KAMAL_HOSTS"].split(",")
+results = nil
+max = 3
+
+elapsed = Benchmark.realtime do
+  results = hosts.map do |host|
+    Thread.new do
+      tries = 1
+
+      begin
+        Socket.getaddrinfo(host, 0, Socket::AF_UNSPEC, Socket::SOCK_STREAM, nil, Socket::AI_CANONNAME)
+      rescue SocketError
+        if tries < max
+          puts "Retrying DNS warmup: #{host}"
+          tries += 1
+          sleep rand
+          retry
+        else
+          puts "DNS warmup failed: #{host}"
+          host
+        end
+      end
+
+      tries
+    end
+  end.map(&:value)
+end
+
+retries = results.sum - hosts.size
+nopes = results.count { |r| r == max }
+
+puts "Prewarmed %d DNS lookups in %.2f sec: %d retries, %d failures" % [ hosts.size, elapsed, retries, nopes ]
+</file>
+
+<file path=".kamal/hooks/pre-deploy.sample">
+#!/usr/bin/env ruby
+
+# A sample pre-deploy hook
+#
+# Checks the Github status of the build, waiting for a pending build to complete for up to 720 seconds.
+#
+# Fails unless the combined status is "success"
+#
+# These environment variables are available:
+# KAMAL_RECORDED_AT
+# KAMAL_PERFORMER
+# KAMAL_VERSION
+# KAMAL_HOSTS
+# KAMAL_COMMAND
+# KAMAL_SUBCOMMAND
+# KAMAL_ROLES (if set)
+# KAMAL_DESTINATION (if set)
+
+# Only check the build status for production deployments
+if ENV["KAMAL_COMMAND"] == "rollback" || ENV["KAMAL_DESTINATION"] != "production"
+  exit 0
+end
+
+require "bundler/inline"
+
+# true = install gems so this is fast on repeat invocations
+gemfile(true, quiet: true) do
+  source "https://rubygems.org"
+
+  gem "octokit"
+  gem "faraday-retry"
+end
+
+MAX_ATTEMPTS = 72
+ATTEMPTS_GAP = 10
+
+def exit_with_error(message)
+  $stderr.puts message
+  exit 1
+end
+
+class GithubStatusChecks
+  attr_reader :remote_url, :git_sha, :github_client, :combined_status
+
+  def initialize
+    @remote_url = github_repo_from_remote_url
+    @git_sha = `git rev-parse HEAD`.strip
+    @github_client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"])
+    refresh!
+  end
+
+  def refresh!
+    @combined_status = github_client.combined_status(remote_url, git_sha)
+  end
+
+  def state
+    combined_status[:state]
+  end
+
+  def first_status_url
+    first_status = combined_status[:statuses].find { |status| status[:state] == state }
+    first_status && first_status[:target_url]
+  end
+
+  def complete_count
+    combined_status[:statuses].count { |status| status[:state] != "pending"}
+  end
+
+  def total_count
+    combined_status[:statuses].count
+  end
+
+  def current_status
+    if total_count > 0
+      "Completed #{complete_count}/#{total_count} checks, see #{first_status_url} ..."
+    else
+      "Build not started..."
+    end
+  end
+
+  private
+    def github_repo_from_remote_url
+      url = `git config --get remote.origin.url`.strip.delete_suffix(".git")
+      if url.start_with?("https://github.com/")
+        url.delete_prefix("https://github.com/")
+      elsif url.start_with?("git@github.com:")
+        url.delete_prefix("git@github.com:")
+      else
+        url
+      end
+    end
+end
+
+
+$stdout.sync = true
+
+begin
+  puts "Checking build status..."
+
+  attempts = 0
+  checks = GithubStatusChecks.new
+
+  loop do
+    case checks.state
+    when "success"
+      puts "Checks passed, see #{checks.first_status_url}"
+      exit 0
+    when "failure"
+      exit_with_error "Checks failed, see #{checks.first_status_url}"
+    when "pending"
+      attempts += 1
+    end
+
+    exit_with_error "Checks are still pending, gave up after #{MAX_ATTEMPTS * ATTEMPTS_GAP} seconds" if attempts == MAX_ATTEMPTS
+
+    puts checks.current_status
+    sleep(ATTEMPTS_GAP)
+    checks.refresh!
+  end
+rescue Octokit::NotFound
+  exit_with_error "Build status could not be found"
+end
+</file>
+
+<file path=".kamal/hooks/pre-proxy-reboot.sample">
+#!/usr/bin/env sh
+
+echo "Rebooting kamal-proxy on $KAMAL_HOSTS..."
+</file>
+
+<file path=".kamal/secrets">
+# Secrets defined here are available for reference under registry/password, env/secret, builder/secrets,
+# and accessories/*/env/secret in config/deploy.yml. All secrets should be pulled from either
+# password manager, ENV, or a file. DO NOT ENTER RAW CREDENTIALS HERE! This file needs to be safe for git.
+
+# Example of extracting secrets from 1password (or another compatible pw manager)
+# SECRETS=$(kamal secrets fetch --adapter 1password --account your-account --from Vault/Item KAMAL_REGISTRY_PASSWORD RAILS_MASTER_KEY)
+# KAMAL_REGISTRY_PASSWORD=$(kamal secrets extract KAMAL_REGISTRY_PASSWORD ${SECRETS})
+# RAILS_MASTER_KEY=$(kamal secrets extract RAILS_MASTER_KEY ${SECRETS})
+
+# Example of extracting secrets from Rails credentials
+# KAMAL_REGISTRY_PASSWORD=$(rails credentials:fetch kamal.registry_password)
+
+# Use a GITHUB_TOKEN if private repositories are needed for the image
+# GITHUB_TOKEN=$(gh config get -h github.com oauth_token)
+
+# Grab the registry password from ENV
+# KAMAL_REGISTRY_PASSWORD=$KAMAL_REGISTRY_PASSWORD
+
+# Improve security by using a password manager. Never check config/master.key into git!
+RAILS_MASTER_KEY=$(cat config/master.key)
+</file>
+
+<file path="app/assets/builds/.keep">
+
+</file>
+
+<file path="app/assets/images/.keep">
+
+</file>
+
+<file path="app/assets/tailwind/application.css">
+@import "tailwindcss";
+
+/* Desactiva la variante automática por hardware/media query de Tailwind v4 */
+/* Exige la clase CSS .dark explícita en la etiqueta <html> */
+@variant dark (&:where(.dark, .dark *));
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans"), local("DeskSans-Regular");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans Medium"), local("DeskSans-Medium");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans Bold"), local("DeskSans-Bold");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Desk Sans";
+  src: local("Desk Sans ExtraBold"), local("DeskSans-ExtraBold"), local("Desk Sans Bold");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Desk Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Estilos personalizados para la paginación de Pagy */
+.pagy {
+  @apply flex items-center justify-center space-x-1 font-semibold text-sm text-gray-500 my-4;
+}
+
+.pagy a:not(.gap) {
+  @apply block rounded-xl px-3 py-1.5 bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 hover:text-black;
+}
+
+.pagy a:not([href]) {
+  @apply text-gray-300 bg-gray-50 cursor-not-allowed hover:bg-gray-50 hover:text-gray-300;
+}
+
+.pagy a.current {
+  @apply text-white bg-black pointer-events-none hover:bg-black hover:text-white;
+}
+
+.pagy .gap {
+  @apply px-2;
+}
+</file>
+
+<file path="app/controllers/concerns/.keep">
+
+</file>
+
+<file path="app/controllers/os/base_controller.rb">
+class Os::BaseController < ::ApplicationController
+      before_action :authenticate_user!
+      before_action :ensure_account_not_suspended!
+  
+      include Pundit::Authorization
+      after_action :verify_authorized
+  
+      layout "os"
+  
+      rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
+
+      protected
+
+        def configure_permitted_parameters
+            devise_parameter_sanitizer.permit(:sign_up, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city])
+            devise_parameter_sanitizer.permit(:account_update, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme])
+        end
+  
+      private
+  
+        def user_not_authorized
+          if ActiveModel::Type::Boolean.new.cast(ENV.fetch("USER_SHOULD_PAY", "false")) && !current_user&.active?
+            flash[:alert] = "Requieres una suscripción activa para acceder a Drivver OS."
+          else
+            flash[:alert] = "No tienes permisos para realizar esta acción o acceder a este módulo."
+          end
+          
+          redirect_to(request.referrer || root_path)
+        end
+
+        def ensure_account_not_suspended!
+          if !current_user.active?
+            sign_out current_user
+            flash[:alert] = "Tu cuenta ha sido suspendida por violar nuestras políticas."
+            redirect_to root_path
+          end
+        end
+    
+        def user_not_authorized
+          flash[:alert] = "Tu plan actual no incluye esta funcionalidad o no tienes permisos."
+          redirect_to(request.referrer || os_root_path)
+        end
+end
+</file>
 
 <file path="app/controllers/users/google_id_tokens_controller.rb">
 require "googleauth/id_tokens"
@@ -786,674 +1241,6 @@ export default class extends Controller {
 }
 </file>
 
-<file path="app/models/webauthn_credential.rb">
-class WebauthnCredential < ApplicationRecord
-  belongs_to :user
-end
-</file>
-
-<file path="app/views/devise/shared/_google_auth.html.erb">
-<% context = local_assigns.fetch(:context, "signin") %>
-<% fallback_label = local_assigns.fetch(:fallback_label, t("auth.google.continue")) %>
-
-<div class="mb-6"
-     data-controller="google-auth"
-     data-google-auth-client-id-value="<%= ENV.fetch('GOOGLE_CLIENT_ID', '') %>"
-     data-google-auth-login-uri-value="<%= users_google_id_token_url %>"
-     data-google-auth-csrf-token-value="<%= form_authenticity_token %>"
-     data-google-auth-context-value="<%= context %>">
-  <div data-google-auth-target="button" class="w-full min-h-[44px] flex justify-center [&>div]:w-full"></div>
-
-  <div data-google-auth-target="fallback" class="hidden mt-3">
-    <%= button_to user_google_oauth2_omniauth_authorize_path, method: :post, data: { turbo: false }, class: "w-full flex items-center justify-center gap-3 py-3 px-4 bg-white text-gray-700 font-bold rounded-xl text-xs border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm cursor-pointer" do %>
-      <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-      </svg>
-      <span><%= fallback_label %></span>
-    <% end %>
-  </div>
-</div>
-</file>
-
-<file path="config/initializers/country_select.rb">
-ISO3166.configure do |config|
-  config.locales = [ :es, :en ]
-end
-
-CountrySelect::FORMATS[:with_calling_code] = lambda do |country|
-  name = country.translations[I18n.locale.to_s] || country.iso_short_name
-  "#{country.emoji_flag} #{name} (+#{country.country_code})"
-end
-
-CountrySelect::DEFAULTS[:format] = :with_calling_code
-CountrySelect::DEFAULTS[:locale] = :es
-CountrySelect::DEFAULTS[:priority_countries] = %w[CO MX US ES AR PE CL EC]
-</file>
-
-<file path="config/initializers/webauthn.rb">
-WebAuthn.configure do |config|
-  # Nombre comercial que verá el usuario en la solicitud de Passkey
-  config.rp_name = "Drivver OS"
-
-  # En producción debe ser el dominio real sin puerto (ej. "drivver.com")
-  # En desarrollo usamos localhost
-  config.rp_id = Rails.env.production? ? "drivver.com" : "localhost"
-
-  # Debe coincidir con window.location.origin
-  config.allowed_origins = if Rails.env.production?
-    [ "https://drivver.com" ]
-  else
-    [ "http://localhost:3000" ]
-  end
-end
-</file>
-
-<file path="config/locales/devise.es.yml">
-# Additional translations at https://github.com/heartcombo/devise/wiki/I18n
-
-es:
-  devise:
-    confirmations:
-      confirmed: "Tu correo electrónico ha sido confirmado correctamente."
-      send_instructions: "Recibirás un correo con instrucciones para confirmar tu dirección de email en unos minutos."
-      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un mensaje con instrucciones para confirmarlo en unos minutos."
-    failure:
-      already_authenticated: "Ya iniciaste sesión."
-      inactive: "Tu cuenta aún no está activada."
-      invalid: "%{authentication_keys} o contraseña inválidos."
-      locked: "Tu cuenta está bloqueada."
-      last_attempt: "Te queda un intento antes de que tu cuenta sea bloqueada."
-      not_found_in_database: "%{authentication_keys} o contraseña inválidos."
-      timeout: "Tu sesión expiró. Inicia sesión de nuevo para continuar."
-      unauthenticated: "Necesitas iniciar sesión o registrarte antes de continuar."
-      unconfirmed: "Tienes que confirmar tu correo electrónico antes de continuar."
-    mailer:
-      confirmation_instructions:
-        subject: "Instrucciones de confirmación"
-      reset_password_instructions:
-        subject: "Instrucciones para restablecer la contraseña"
-      unlock_instructions:
-        subject: "Instrucciones de desbloqueo"
-      email_changed:
-        subject: "Correo electrónico actualizado"
-      password_change:
-        subject: "Contraseña actualizada"
-    omniauth_callbacks:
-      failure: "No se pudo autenticarte desde %{kind} porque \"%{reason}\"."
-      success: "Autenticación exitosa con la cuenta de %{kind}."
-    passwords:
-      no_token: "No puedes acceder a esta página si no vienes desde un correo de restablecimiento de contraseña. Si vienes de ese correo, asegúrate de usar la URL completa que te enviamos."
-      send_instructions: "Recibirás un correo con instrucciones para restablecer tu contraseña en unos minutos."
-      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un enlace de recuperación en unos minutos."
-      updated: "Tu contraseña se cambió correctamente. Ya iniciaste sesión."
-      updated_not_active: "Tu contraseña se cambió correctamente."
-    registrations:
-      destroyed: "¡Hasta pronto! Tu cuenta se canceló correctamente. Esperamos verte de nuevo."
-      signed_up: "¡Bienvenido! Te registraste correctamente."
-      signed_up_but_inactive: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta aún no está activada."
-      signed_up_but_locked: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta está bloqueada."
-      signed_up_but_unconfirmed: "Enviamos un mensaje con un enlace de confirmación a tu correo. Sigue el enlace para activar tu cuenta."
-      update_needs_confirmation: "Actualizaste tu cuenta correctamente, pero debemos verificar tu nuevo correo. Revisa tu bandeja y sigue el enlace de confirmación."
-      updated: "Tu cuenta se actualizó correctamente."
-      updated_but_not_signed_in: "Tu cuenta se actualizó correctamente, pero como cambiaste la contraseña debes iniciar sesión de nuevo."
-    sessions:
-      signed_in: "Iniciaste sesión correctamente."
-      signed_out: "Cerraste sesión correctamente."
-      already_signed_out: "Cerraste sesión correctamente."
-    unlocks:
-      send_instructions: "Recibirás un correo con instrucciones para desbloquear tu cuenta en unos minutos."
-      send_paranoid_instructions: "Si tu cuenta existe, recibirás un correo con instrucciones para desbloquearla en unos minutos."
-      unlocked: "Tu cuenta se desbloqueó correctamente. Inicia sesión para continuar."
-  errors:
-    messages:
-      already_confirmed: "ya fue confirmado, intenta iniciar sesión"
-      confirmation_period_expired: "debe confirmarse dentro de %{period}, solicita uno nuevo"
-      expired: "ha expirado, solicita uno nuevo"
-      not_found: "no encontrado"
-      not_locked: "no estaba bloqueado"
-      not_saved:
-        one: "1 error impidió guardar este %{resource}:"
-        other: "%{count} errores impidieron guardar este %{resource}:"
-</file>
-
-<file path="db/migrate/20260924152332_create_webauthn_credentials.rb">
-class CreateWebauthnCredentials < ActiveRecord::Migration[8.0]
-  def change
-    create_table :webauthn_credentials do |t|
-      t.references :user, null: false, foreign_key: true, type: :uuid
-      t.string :external_id, null: false
-      t.text :public_key, null: false
-      t.bigint :sign_count, null: false, default: 0
-
-      t.timestamps
-    end
-
-    add_index :webauthn_credentials, :external_id, unique: true
-  end
-end
-</file>
-
-<file path="db/migrate/20260924170622_change_default_active_on_users.rb">
-class ChangeDefaultActiveOnUsers < ActiveRecord::Migration[8.0]
-  def change
-    change_column_default :users, :active, from: nil, to: false
-    reversible do |dir|
-      dir.up do
-        User.where(active: nil).update_all(active: false)
-      end
-    end
-  end
-end
-</file>
-
-<file path="spec/factories/webauthn_credentials.rb">
-FactoryBot.define do
-  factory :webauthn_credential do
-    user { nil }
-    external_id { "MyString" }
-    public_key { "MyText" }
-    sign_count { "" }
-  end
-end
-</file>
-
-<file path="spec/models/webauthn_credential_spec.rb">
-require 'rails_helper'
-
-RSpec.describe WebauthnCredential, type: :model do
-  pending "add some examples to (or delete) #{__FILE__}"
-end
-</file>
-
-<file path=".github/dependabot.yml">
-version: 2
-updates:
-- package-ecosystem: bundler
-  directory: "/"
-  schedule:
-    interval: weekly
-  open-pull-requests-limit: 10
-- package-ecosystem: github-actions
-  directory: "/"
-  schedule:
-    interval: weekly
-  open-pull-requests-limit: 10
-</file>
-
-<file path=".kamal/hooks/docker-setup.sample">
-#!/usr/bin/env sh
-
-echo "Docker set up on $KAMAL_HOSTS..."
-</file>
-
-<file path=".kamal/hooks/post-app-boot.sample">
-#!/usr/bin/env sh
-
-echo "Booted app version $KAMAL_VERSION on $KAMAL_HOSTS..."
-</file>
-
-<file path=".kamal/hooks/post-deploy.sample">
-#!/usr/bin/env sh
-
-# A sample post-deploy hook
-#
-# These environment variables are available:
-# KAMAL_RECORDED_AT
-# KAMAL_PERFORMER
-# KAMAL_VERSION
-# KAMAL_HOSTS
-# KAMAL_ROLES (if set)
-# KAMAL_DESTINATION (if set)
-# KAMAL_RUNTIME
-
-echo "$KAMAL_PERFORMER deployed $KAMAL_VERSION to $KAMAL_DESTINATION in $KAMAL_RUNTIME seconds"
-</file>
-
-<file path=".kamal/hooks/post-proxy-reboot.sample">
-#!/usr/bin/env sh
-
-echo "Rebooted kamal-proxy on $KAMAL_HOSTS"
-</file>
-
-<file path=".kamal/hooks/pre-app-boot.sample">
-#!/usr/bin/env sh
-
-echo "Booting app version $KAMAL_VERSION on $KAMAL_HOSTS..."
-</file>
-
-<file path=".kamal/hooks/pre-build.sample">
-#!/usr/bin/env sh
-
-# A sample pre-build hook
-#
-# Checks:
-# 1. We have a clean checkout
-# 2. A remote is configured
-# 3. The branch has been pushed to the remote
-# 4. The version we are deploying matches the remote
-#
-# These environment variables are available:
-# KAMAL_RECORDED_AT
-# KAMAL_PERFORMER
-# KAMAL_VERSION
-# KAMAL_HOSTS
-# KAMAL_ROLES (if set)
-# KAMAL_DESTINATION (if set)
-
-if [ -n "$(git status --porcelain)" ]; then
-  echo "Git checkout is not clean, aborting..." >&2
-  git status --porcelain >&2
-  exit 1
-fi
-
-first_remote=$(git remote)
-
-if [ -z "$first_remote" ]; then
-  echo "No git remote set, aborting..." >&2
-  exit 1
-fi
-
-current_branch=$(git branch --show-current)
-
-if [ -z "$current_branch" ]; then
-  echo "Not on a git branch, aborting..." >&2
-  exit 1
-fi
-
-remote_head=$(git ls-remote $first_remote --tags $current_branch | cut -f1)
-
-if [ -z "$remote_head" ]; then
-  echo "Branch not pushed to remote, aborting..." >&2
-  exit 1
-fi
-
-if [ "$KAMAL_VERSION" != "$remote_head" ]; then
-  echo "Version ($KAMAL_VERSION) does not match remote HEAD ($remote_head), aborting..." >&2
-  exit 1
-fi
-
-exit 0
-</file>
-
-<file path=".kamal/hooks/pre-connect.sample">
-#!/usr/bin/env ruby
-
-# A sample pre-connect check
-#
-# Warms DNS before connecting to hosts in parallel
-#
-# These environment variables are available:
-# KAMAL_RECORDED_AT
-# KAMAL_PERFORMER
-# KAMAL_VERSION
-# KAMAL_HOSTS
-# KAMAL_ROLES (if set)
-# KAMAL_DESTINATION (if set)
-# KAMAL_RUNTIME
-
-hosts = ENV["KAMAL_HOSTS"].split(",")
-results = nil
-max = 3
-
-elapsed = Benchmark.realtime do
-  results = hosts.map do |host|
-    Thread.new do
-      tries = 1
-
-      begin
-        Socket.getaddrinfo(host, 0, Socket::AF_UNSPEC, Socket::SOCK_STREAM, nil, Socket::AI_CANONNAME)
-      rescue SocketError
-        if tries < max
-          puts "Retrying DNS warmup: #{host}"
-          tries += 1
-          sleep rand
-          retry
-        else
-          puts "DNS warmup failed: #{host}"
-          host
-        end
-      end
-
-      tries
-    end
-  end.map(&:value)
-end
-
-retries = results.sum - hosts.size
-nopes = results.count { |r| r == max }
-
-puts "Prewarmed %d DNS lookups in %.2f sec: %d retries, %d failures" % [ hosts.size, elapsed, retries, nopes ]
-</file>
-
-<file path=".kamal/hooks/pre-deploy.sample">
-#!/usr/bin/env ruby
-
-# A sample pre-deploy hook
-#
-# Checks the Github status of the build, waiting for a pending build to complete for up to 720 seconds.
-#
-# Fails unless the combined status is "success"
-#
-# These environment variables are available:
-# KAMAL_RECORDED_AT
-# KAMAL_PERFORMER
-# KAMAL_VERSION
-# KAMAL_HOSTS
-# KAMAL_COMMAND
-# KAMAL_SUBCOMMAND
-# KAMAL_ROLES (if set)
-# KAMAL_DESTINATION (if set)
-
-# Only check the build status for production deployments
-if ENV["KAMAL_COMMAND"] == "rollback" || ENV["KAMAL_DESTINATION"] != "production"
-  exit 0
-end
-
-require "bundler/inline"
-
-# true = install gems so this is fast on repeat invocations
-gemfile(true, quiet: true) do
-  source "https://rubygems.org"
-
-  gem "octokit"
-  gem "faraday-retry"
-end
-
-MAX_ATTEMPTS = 72
-ATTEMPTS_GAP = 10
-
-def exit_with_error(message)
-  $stderr.puts message
-  exit 1
-end
-
-class GithubStatusChecks
-  attr_reader :remote_url, :git_sha, :github_client, :combined_status
-
-  def initialize
-    @remote_url = github_repo_from_remote_url
-    @git_sha = `git rev-parse HEAD`.strip
-    @github_client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"])
-    refresh!
-  end
-
-  def refresh!
-    @combined_status = github_client.combined_status(remote_url, git_sha)
-  end
-
-  def state
-    combined_status[:state]
-  end
-
-  def first_status_url
-    first_status = combined_status[:statuses].find { |status| status[:state] == state }
-    first_status && first_status[:target_url]
-  end
-
-  def complete_count
-    combined_status[:statuses].count { |status| status[:state] != "pending"}
-  end
-
-  def total_count
-    combined_status[:statuses].count
-  end
-
-  def current_status
-    if total_count > 0
-      "Completed #{complete_count}/#{total_count} checks, see #{first_status_url} ..."
-    else
-      "Build not started..."
-    end
-  end
-
-  private
-    def github_repo_from_remote_url
-      url = `git config --get remote.origin.url`.strip.delete_suffix(".git")
-      if url.start_with?("https://github.com/")
-        url.delete_prefix("https://github.com/")
-      elsif url.start_with?("git@github.com:")
-        url.delete_prefix("git@github.com:")
-      else
-        url
-      end
-    end
-end
-
-
-$stdout.sync = true
-
-begin
-  puts "Checking build status..."
-
-  attempts = 0
-  checks = GithubStatusChecks.new
-
-  loop do
-    case checks.state
-    when "success"
-      puts "Checks passed, see #{checks.first_status_url}"
-      exit 0
-    when "failure"
-      exit_with_error "Checks failed, see #{checks.first_status_url}"
-    when "pending"
-      attempts += 1
-    end
-
-    exit_with_error "Checks are still pending, gave up after #{MAX_ATTEMPTS * ATTEMPTS_GAP} seconds" if attempts == MAX_ATTEMPTS
-
-    puts checks.current_status
-    sleep(ATTEMPTS_GAP)
-    checks.refresh!
-  end
-rescue Octokit::NotFound
-  exit_with_error "Build status could not be found"
-end
-</file>
-
-<file path=".kamal/hooks/pre-proxy-reboot.sample">
-#!/usr/bin/env sh
-
-echo "Rebooting kamal-proxy on $KAMAL_HOSTS..."
-</file>
-
-<file path=".kamal/secrets">
-# Secrets defined here are available for reference under registry/password, env/secret, builder/secrets,
-# and accessories/*/env/secret in config/deploy.yml. All secrets should be pulled from either
-# password manager, ENV, or a file. DO NOT ENTER RAW CREDENTIALS HERE! This file needs to be safe for git.
-
-# Example of extracting secrets from 1password (or another compatible pw manager)
-# SECRETS=$(kamal secrets fetch --adapter 1password --account your-account --from Vault/Item KAMAL_REGISTRY_PASSWORD RAILS_MASTER_KEY)
-# KAMAL_REGISTRY_PASSWORD=$(kamal secrets extract KAMAL_REGISTRY_PASSWORD ${SECRETS})
-# RAILS_MASTER_KEY=$(kamal secrets extract RAILS_MASTER_KEY ${SECRETS})
-
-# Example of extracting secrets from Rails credentials
-# KAMAL_REGISTRY_PASSWORD=$(rails credentials:fetch kamal.registry_password)
-
-# Use a GITHUB_TOKEN if private repositories are needed for the image
-# GITHUB_TOKEN=$(gh config get -h github.com oauth_token)
-
-# Grab the registry password from ENV
-# KAMAL_REGISTRY_PASSWORD=$KAMAL_REGISTRY_PASSWORD
-
-# Improve security by using a password manager. Never check config/master.key into git!
-RAILS_MASTER_KEY=$(cat config/master.key)
-</file>
-
-<file path="app/assets/builds/.keep">
-
-</file>
-
-<file path="app/assets/images/.keep">
-
-</file>
-
-<file path="app/assets/tailwind/application.css">
-@import "tailwindcss";
-
-/* Desactiva la variante automática por hardware/media query de Tailwind v4 */
-/* Exige la clase CSS .dark explícita en la etiqueta <html> */
-@variant dark (&:where(.dark, .dark *));
-
-@font-face {
-  font-family: "Desk Sans";
-  src: local("Desk Sans"), local("DeskSans-Regular");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Desk Sans";
-  src: local("Desk Sans Medium"), local("DeskSans-Medium");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Desk Sans";
-  src: local("Desk Sans Bold"), local("DeskSans-Bold");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Desk Sans";
-  src: local("Desk Sans ExtraBold"), local("DeskSans-ExtraBold"), local("Desk Sans Bold");
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@theme {
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: "Desk Sans", ui-sans-serif, system-ui, sans-serif;
-}
-
-@layer base {
-  html,
-  body {
-    font-family: var(--font-sans);
-  }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    font-family: var(--font-heading);
-  }
-}
-
-/* Estilos personalizados para la paginación de Pagy */
-.pagy {
-  @apply flex items-center justify-center space-x-1 font-semibold text-sm text-gray-500 my-4;
-}
-
-.pagy a:not(.gap) {
-  @apply block rounded-xl px-3 py-1.5 bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 hover:text-black;
-}
-
-.pagy a:not([href]) {
-  @apply text-gray-300 bg-gray-50 cursor-not-allowed hover:bg-gray-50 hover:text-gray-300;
-}
-
-.pagy a.current {
-  @apply text-white bg-black pointer-events-none hover:bg-black hover:text-white;
-}
-
-.pagy .gap {
-  @apply px-2;
-}
-</file>
-
-<file path="app/controllers/concerns/.keep">
-
-</file>
-
-<file path="app/controllers/os/application_controller.rb">
-class Os::ApplicationController < ::ApplicationController
-      before_action :authenticate_user!
-  
-      include Pundit::Authorization
-      after_action :verify_authorized
-  
-      layout "os"
-  
-      rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
-
-      protected
-
-        def configure_permitted_parameters
-            devise_parameter_sanitizer.permit(:sign_up, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city])
-            devise_parameter_sanitizer.permit(:account_update, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme])
-        end
-  
-      private
-  
-      def user_not_authorized
-        flash[:alert] = "No tienes permisos para realizar esta acción o acceder a este módulo."
-        redirect_to(request.referrer || root_path)
-      end
-end
-</file>
-
-<file path="app/controllers/os/dashboards_controller.rb">
-class Os::DashboardsController < Os::ApplicationController
-  def show
-    authorize :dashboard, :show?
-    @user = current_user
-    set_whatsapp_cta
-  end
-
-  private
-    def set_whatsapp_cta
-      @whatsapp_number = ENV.fetch("WHATSAPP_NUMBER")
-      @whatsapp_message = URI.encode_www_form_component("Hola, soy nuevo en Drivver. Me ayudas")
-      @cta_url = "https://wa.me/#{@whatsapp_number}?text=#{@whatsapp_message}"
-    end
-end
-</file>
-
-<file path="app/controllers/users/omniauth_callbacks_controller.rb">
-module Users
-  class OmniauthCallbacksController < Devise::OmniauthCallbacksController
-    def google_oauth2
-      handle_auth("Google")
-    end
-
-    def failure
-      redirect_to new_user_session_path, alert: "No se pudo autenticar con Google."
-    end
-
-    private
-
-    def handle_auth(kind)
-      @user = User.from_omniauth(request.env["omniauth.auth"])
-
-      if @user.persisted?
-        flash[:notice] = "Inicio de sesión exitoso con #{kind}."
-        sign_in_and_redirect @user, event: :authentication
-      else
-        session["devise.google_data"] = request.env["omniauth.auth"].except(:extra)
-        redirect_to new_user_registration_url, alert: "Hubo un problema al autenticar o crear tu cuenta con #{kind}."
-      end
-    end
-  end
-end
-</file>
-
-<file path="app/javascript/controllers/index.js">
-import { application } from "controllers/application"
-import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
-eagerLoadControllersFrom("controllers", application)
-</file>
-
 <file path="app/javascript/application.js">
 // Configure your import map in config/importmap.rb. Read more: https://github.com/rails/importmap-rails
 import "@hotwired/turbo-rails"
@@ -1598,6 +1385,12 @@ class Vehicle < ApplicationRecord
 end
 </file>
 
+<file path="app/models/webauthn_credential.rb">
+class WebauthnCredential < ApplicationRecord
+  belongs_to :user
+end
+</file>
+
 <file path="app/policies/application_policy.rb">
 class ApplicationPolicy
   attr_reader :user, :record
@@ -1655,204 +1448,28 @@ class ApplicationPolicy
 end
 </file>
 
-<file path="app/policies/dashboard_policy.rb">
-class DashboardPolicy < ApplicationPolicy
-    def show?
-      user.present? && user.active?
-    end
-  end
-</file>
+<file path="app/views/devise/shared/_google_auth.html.erb">
+<% context = local_assigns.fetch(:context, "signin") %>
+<% fallback_label = local_assigns.fetch(:fallback_label, t("auth.google.continue")) %>
 
-<file path="app/views/devise/registrations/new.html.erb">
-<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]">
-  <div class="w-full max-w-lg bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
-    <div class="text-center mb-8">
-      <div class="flex justify-center items-center gap-2 mb-3">
-        <%= image_tag "blue-logo-horizontal.webp", alt: "Drivver OS", class: "h-15 object-contain" %>
-      </div>
-      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Crear Cuenta Drivver</h2>
-      <p class="text-xs text-gray-500 mt-1 font-medium">Únete a la plataforma de gestión vehicular</p>
-    </div>
+<div class="mb-6"
+     data-controller="google-auth"
+     data-google-auth-client-id-value="<%= ENV.fetch('GOOGLE_CLIENT_ID', '') %>"
+     data-google-auth-login-uri-value="<%= users_google_id_token_url %>"
+     data-google-auth-csrf-token-value="<%= form_authenticity_token %>"
+     data-google-auth-context-value="<%= context %>">
+  <div data-google-auth-target="button" class="w-full min-h-[44px] flex justify-center [&>div]:w-full"></div>
 
-    <%= render "devise/shared/google_auth", context: "signup", fallback_label: t("auth.google.sign_up") %>
-
-    <div class="relative flex py-2 items-center mb-6">
-      <div class="flex-grow border-t border-gray-200"></div>
-      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O REGÍSTRATE CON CORREO</span>
-      <div class="flex-grow border-t border-gray-200"></div>
-    </div>
-    
-    <%= simple_form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f| %>
-    <%= f.error_notification %>
-      <div class="space-y-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <%= f.input :first_name,
-                      required: true,
-                      label: "Nombre",
-                      placeholder: "Carlos",
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
-          <%= f.input :last_name,
-                      required: true,
-                      label: "Apellido",
-                      placeholder: "Pérez",
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <%= f.input :id_type,
-                      collection: [ [ "Cédula de Ciudadanía", "CC" ], [ "Cédula de Extranjería", "CE" ], [ "NIT", "NIT" ], [ "Pasaporte", "PP" ] ],
-                      label: "Tipo ID",
-                      prompt: "Seleccionar",
-                      required: true,
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
-
-          <div class="sm:col-span-2">
-            <%= f.input :id_number,
-                        required: true,
-                        label: "Número de Documento",
-                        placeholder: "1020304050",
-                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <%= f.input :phone_country_code,
-                      as: :country,
-                      priority: %w[CO MX US ES AR PE CL EC],
-                      selected: "CO",
-                      label: "País",
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
-
-          <div class="sm:col-span-2">
-            <%= f.input :phone_number,
-                        required: true,
-                        label: "Teléfono Móvil",
-                        placeholder: "3001234567",
-                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-          </div>
-        </div>
-
-        <%= f.input :city,
-                    required: true,
-                    label: "Ciudad",
-                    placeholder: "Bogotá",
-                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
-        <%= f.input :email,
-                    required: true,
-                    label: "Correo Electrónico",
-                    placeholder: "ejemplo@drivver.com",
-                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <%= f.input :password,
-                      required: true,
-                      label: "Contraseña",
-                      hint: "Mínimo 6 caracteres",
-                      placeholder: "••••••••",
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      hint_html: { class: "text-[10px] text-gray-400 mt-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
-          <%= f.input :password_confirmation,
-                      required: true,
-                      label: "Confirmar Contraseña",
-                      placeholder: "••••••••",
-                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-        </div>
-      </div>
-
-      <div class="mt-8">
-        <%= f.button :submit, "CREAR MI CUENTA DRIVVER", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
-      </div>
+  <div data-google-auth-target="fallback" class="hidden mt-3">
+    <%= button_to user_google_oauth2_omniauth_authorize_path, method: :post, data: { turbo: false }, class: "w-full flex items-center justify-center gap-3 py-3 px-4 bg-white text-gray-700 font-bold rounded-xl text-xs border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm cursor-pointer" do %>
+      <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+      </svg>
+      <span><%= fallback_label %></span>
     <% end %>
-
-    <div class="mt-6 text-center text-xs text-gray-500 pt-4 border-t border-gray-100">
-      <p>
-        ¿Ya tienes una cuenta?
-        <%= link_to "Inicia sesión aquí", new_session_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
-      </p>
-    </div>
-  </div>
-</div>
-</file>
-
-<file path="app/views/devise/sessions/new.html.erb">
-<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]" data-controller="passkey">
-  <div class="w-full max-w-md bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
-    <div class="text-center mb-8">
-      <div class="flex justify-center items-center gap-2 mb-3">
-        <%= image_tag 'blue-logo-horizontal.webp', alt: 'Drivver OS', class: 'h-15 object-contain' rescue nil %>
-      </div>
-      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Iniciar Sesión</h2>
-      <p class="text-xs text-gray-500 mt-1 font-medium">Ingresa a tu ecosistema vehicular</p>
-    </div>
-    <div data-passkey-target="error" class="hidden mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-semibold border border-red-100"></div>
-    <%= render "devise/shared/google_auth" %>
-    <div class="mb-4">
-      <button type="button" 
-              data-action="click->passkey#authenticate" 
-              class="w-full flex items-center justify-center gap-3 py-3 px-4 bg-sky-50 text-sky-800 border border-sky-200 font-extrabold rounded-xl text-xs hover:bg-sky-100 transition-colors shadow-sm cursor-pointer">
-        <svg class="w-5 h-5 text-sky-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 004 11c0 2.473.345 4.866.99 7.132M13 11a1 1 0 11-2 0 1 1 0 012 0z"/>
-        </svg>
-        <span>Ingresar con Passkey (FaceID / Huella)</span>
-      </button>
-    </div>
-    <div class="relative flex py-2 items-center mb-6">
-      <div class="flex-grow border-t border-gray-200"></div>
-      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O CON TU CORREO</span>
-      <div class="flex-grow border-t border-gray-200"></div>
-    </div>
-    <%= simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f| %>
-      <div class="space-y-4">
-        <%= f.input :email, 
-                    required: true, 
-                    autofocus: true, 
-                    placeholder: "ejemplo@drivver.com", 
-                    label: "Correo Electrónico",
-                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-        <%= f.input :password, 
-                    required: true, 
-                    placeholder: "••••••••", 
-                    label: "Contraseña",
-                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
-                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-        <% if devise_mapping.rememberable? %>
-          <div class="flex items-center pt-1">
-            <%= f.input :remember_me, 
-                        as: :boolean, 
-                        label: "Recordar mi sesión",
-                        wrapper_html: { class: "flex items-center gap-2" },
-                        label_html: { class: "text-xs font-medium text-gray-600 cursor-pointer select-none" },
-                        input_html: { class: "w-4 h-4 text-sky-600 border-gray-300 rounded focus:ring-sky-500 cursor-pointer" } %>
-          </div>
-        <% end %>
-      </div>
-      <div class="mt-6">
-        <%= f.button :submit, "INGRESAR CON CONTRASEÑA", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
-      </div>
-    <% end %>
-    <div class="mt-6 text-center text-xs text-gray-500 space-y-2 pt-2 border-t border-gray-100">
-      <p>
-        ¿No tienes una cuenta? 
-        <%= link_to "Regístrate aquí", new_registration_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
-      </p>
-      <p>
-        <%= link_to "¿Olvidaste tu contraseña?", new_password_path(resource_name), class: "text-gray-400 hover:text-gray-600 transition-colors" %>
-      </p>
-    </div>
   </div>
 </div>
 </file>
@@ -2550,336 +2167,19 @@ Rails.application.config.assets.version = "1.0"
 # end
 </file>
 
-<file path="config/initializers/devise.rb">
-# frozen_string_literal: true
-
-# Assuming you have not yet modified this file, each configuration option below
-# is set to its default value. Note that some are commented out while others
-# are not: uncommented lines are intended to protect your configuration from
-# breaking changes in upgrades (i.e., in the event that future versions of
-# Devise change the default values for those options).
-#
-# Use this hook to configure devise mailer, warden hooks and so forth.
-# Many of these configuration options can be set straight in your model.
-Devise.setup do |config|
-  # The secret key used by Devise. Devise uses this key to generate
-  # random tokens. Changing this key will render invalid all existing
-  # confirmation, reset password and unlock tokens in the database.
-  # Devise will use the `secret_key_base` as its `secret_key`
-  # by default. You can change it below and use your own secret key.
-  # config.secret_key = 'ed5105d2a9af649354f33818ed18b8fb1530bbe65573f62aa74a5bd5ea946d9738b7ed9d6d78a7ffab6a106aae0ea5cc58a46fdf55f5383021a3bbed73320a98'
-
-  # ==> Controller configuration
-  # Configure the parent class to the devise controllers.
-  # config.parent_controller = 'DeviseController'
-
-  # ==> Mailer Configuration
-  # Configure the e-mail address which will be shown in Devise::Mailer,
-  # note that it will be overwritten if you use your own mailer class
-  # with default "from" parameter.
-  config.mailer_sender = 'please-change-me-at-config-initializers-devise@example.com'
-
-  # Configure the class responsible to send e-mails.
-  # config.mailer = 'Devise::Mailer'
-
-  # Configure the parent class responsible to send e-mails.
-  # config.parent_mailer = 'ActionMailer::Base'
-
-  # ==> ORM configuration
-  # Load and configure the ORM. Supports :active_record (default) and
-  # :mongoid (bson_ext recommended) by default. Other ORMs may be
-  # available as additional gems.
-  require 'devise/orm/active_record'
-
-  # ==> Configuration for any authentication mechanism
-  # Configure which keys are used when authenticating a user. The default is
-  # just :email. You can configure it to use [:username, :subdomain], so for
-  # authenticating a user, both parameters are required. Remember that those
-  # parameters are used only when authenticating and not when retrieving from
-  # session. If you need permissions, you should implement that in a before filter.
-  # You can also supply a hash where the value is a boolean determining whether
-  # or not authentication should be aborted when the value is not present.
-  # config.authentication_keys = [:email]
-
-  # Configure parameters from the request object used for authentication. Each entry
-  # given should be a request method and it will automatically be passed to the
-  # find_for_authentication method and considered in your model lookup. For instance,
-  # if you set :request_keys to [:subdomain], :subdomain will be used on authentication.
-  # The same considerations mentioned for authentication_keys also apply to request_keys.
-  # config.request_keys = []
-
-  # Configure which authentication keys should be case-insensitive.
-  # These keys will be downcased upon creating or modifying a user and when used
-  # to authenticate or find a user. Default is :email.
-  config.case_insensitive_keys = [:email]
-
-  # Configure which authentication keys should have whitespace stripped.
-  # These keys will have whitespace before and after removed upon creating or
-  # modifying a user and when used to authenticate or find a user. Default is :email.
-  config.strip_whitespace_keys = [:email]
-
-  # Tell if authentication through request.params is enabled. True by default.
-  # It can be set to an array that will enable params authentication only for the
-  # given strategies, for example, `config.params_authenticatable = [:database]` will
-  # enable it only for database (email + password) authentication.
-  # config.params_authenticatable = true
-
-  # Tell if authentication through HTTP Auth is enabled. False by default.
-  # It can be set to an array that will enable http authentication only for the
-  # given strategies, for example, `config.http_authenticatable = [:database]` will
-  # enable it only for database authentication.
-  # For API-only applications to support authentication "out-of-the-box", you will likely want to
-  # enable this with :database unless you are using a custom strategy.
-  # The supported strategies are:
-  # :database      = Support basic authentication with authentication key + password
-  # config.http_authenticatable = false
-
-  # If 401 status code should be returned for AJAX requests. True by default.
-  # config.http_authenticatable_on_xhr = true
-
-  # The realm used in Http Basic Authentication. 'Application' by default.
-  # config.http_authentication_realm = 'Application'
-
-  # It will change confirmation, password recovery and other workflows
-  # to behave the same regardless if the e-mail provided was right or wrong.
-  # Does not affect registerable.
-  # config.paranoid = true
-
-  # By default Devise will store the user in session. You can skip storage for
-  # particular strategies by setting this option.
-  # Notice that if you are skipping storage for all authentication paths, you
-  # may want to disable generating routes to Devise's sessions controller by
-  # passing skip: :sessions to `devise_for` in your config/routes.rb
-  config.skip_session_storage = [:http_auth]
-
-  # By default, Devise cleans up the CSRF token on authentication to
-  # avoid CSRF token fixation attacks. This means that, when using AJAX
-  # requests for sign in and sign up, you need to get a new CSRF token
-  # from the server. You can disable this option at your own risk.
-  # config.clean_up_csrf_token_on_authentication = true
-
-  # When false, Devise will not attempt to reload routes on eager load.
-  # This can reduce the time taken to boot the app but if your application
-  # requires the Devise mappings to be loaded during boot time the application
-  # won't boot properly.
-  # config.reload_routes = true
-
-  # ==> Configuration for :database_authenticatable
-  # For bcrypt, this is the cost for hashing the password and defaults to 12. If
-  # using other algorithms, it sets how many times you want the password to be hashed.
-  # The number of stretches used for generating the hashed password are stored
-  # with the hashed password. This allows you to change the stretches without
-  # invalidating existing passwords.
-  #
-  # Limiting the stretches to just one in testing will increase the performance of
-  # your test suite dramatically. However, it is STRONGLY RECOMMENDED to not use
-  # a value less than 10 in other environments. Note that, for bcrypt (the default
-  # algorithm), the cost increases exponentially with the number of stretches (e.g.
-  # a value of 20 is already extremely slow: approx. 60 seconds for 1 calculation).
-  config.stretches = Rails.env.test? ? 1 : 12
-
-  # Set up a pepper to generate the hashed password.
-  # config.pepper = '473892b4c76a344d2b6f5dddabd7ce839d33a1ad9617f5fb19e05c3e70e1903d2c78e4758bb53856ac0c9cd5445ffa2d70ce2610581fb44111bca7c43d2de5a6'
-
-  # Send a notification to the original email when the user's email is changed.
-  # config.send_email_changed_notification = false
-
-  # Send a notification email when the user's password is changed.
-  # config.send_password_change_notification = false
-
-  # ==> Configuration for :confirmable
-  # A period that the user is allowed to access the website even without
-  # confirming their account. For instance, if set to 2.days, the user will be
-  # able to access the website for two days without confirming their account,
-  # access will be blocked just in the third day.
-  # You can also set it to nil, which will allow the user to access the website
-  # without confirming their account.
-  # Default is 0.days, meaning the user cannot access the website without
-  # confirming their account.
-  # config.allow_unconfirmed_access_for = 2.days
-
-  # A period that the user is allowed to confirm their account before their
-  # token becomes invalid. For example, if set to 3.days, the user can confirm
-  # their account within 3 days after the mail was sent, but on the fourth day
-  # their account can't be confirmed with the token any more.
-  # Default is nil, meaning there is no restriction on how long a user can take
-  # before confirming their account.
-  # config.confirm_within = 3.days
-
-  # If true, requires any email changes to be confirmed (exactly the same way as
-  # initial account confirmation) to be applied. Requires additional unconfirmed_email
-  # db field (see migrations). Until confirmed, new email is stored in
-  # unconfirmed_email column, and copied to email column on successful confirmation.
-  # Also, when used in conjunction with `send_email_changed_notification`,
-  # the notification is sent to the original email when the change is requested,
-  # not when the unconfirmed email is confirmed.
-  config.reconfirmable = true
-
-  # Defines which key will be used when confirming an account
-  # config.confirmation_keys = [:email]
-
-  # ==> Configuration for :rememberable
-  # The time the user will be remembered without asking for credentials again.
-  # config.remember_for = 2.weeks
-
-  # Invalidates all the remember me tokens when the user signs out.
-  config.expire_all_remember_me_on_sign_out = true
-
-  # If true, extends the user's remember period when remembered via cookie.
-  # config.extend_remember_period = false
-
-  # Options to be passed to the created cookie. For instance, you can set
-  # secure: true in order to force SSL only cookies.
-  # config.rememberable_options = {}
-
-  # ==> Configuration for :validatable
-  # Range for password length.
-  config.password_length = 6..128
-
-  # Email regex used to validate email formats. It simply asserts that
-  # one (and only one) @ exists in the given string. This is mainly
-  # to give user feedback and not to assert the e-mail validity.
-  config.email_regexp = /\A[^@\s]+@[^@\s]+\z/
-
-  # ==> Configuration for :timeoutable
-  # The time you want to timeout the user session without activity. After this
-  # time the user will be asked for credentials again. Default is 30 minutes.
-  # config.timeout_in = 30.minutes
-
-  # ==> Configuration for :lockable
-  # Defines which strategy will be used to lock an account.
-  # :failed_attempts = Locks an account after a number of failed attempts to sign in.
-  # :none            = No lock strategy. You should handle locking by yourself.
-  # config.lock_strategy = :failed_attempts
-
-  # Defines which key will be used when locking and unlocking an account
-  # config.unlock_keys = [:email]
-
-  # Defines which strategy will be used to unlock an account.
-  # :email = Sends an unlock link to the user email
-  # :time  = Re-enables login after a certain amount of time (see :unlock_in below)
-  # :both  = Enables both strategies
-  # :none  = No unlock strategy. You should handle unlocking by yourself.
-  # config.unlock_strategy = :both
-
-  # Number of authentication tries before locking an account if lock_strategy
-  # is failed attempts.
-  # config.maximum_attempts = 20
-
-  # Time interval to unlock the account if :time is enabled as unlock_strategy.
-  # config.unlock_in = 1.hour
-
-  # Warn on the last attempt before the account is locked.
-  # config.last_attempt_warning = true
-
-  # ==> Configuration for :recoverable
-  #
-  # Defines which key will be used when recovering the password for an account
-  # config.reset_password_keys = [:email]
-
-  # Time interval you can reset your password with a reset password key.
-  # Don't put a too small interval or your users won't have the time to
-  # change their passwords.
-  config.reset_password_within = 6.hours
-
-  # When set to false, does not sign a user in automatically after their password is
-  # reset. Defaults to true, so a user is signed in automatically after a reset.
-  # config.sign_in_after_reset_password = true
-
-  # ==> Configuration for :encryptable
-  # Allow you to use another hashing or encryption algorithm besides bcrypt (default).
-  # You can use :sha1, :sha512 or algorithms from others authentication tools as
-  # :clearance_sha1, :authlogic_sha512 (then you should set stretches above to 20
-  # for default behavior) and :restful_authentication_sha1 (then you should set
-  # stretches to 10, and copy REST_AUTH_SITE_KEY to pepper).
-  #
-  # Require the `devise-encryptable` gem when using anything other than bcrypt
-  # config.encryptor = :sha512
-
-  # ==> Scopes configuration
-  # Turn scoped views on. Before rendering "sessions/new", it will first check for
-  # "users/sessions/new". It's turned off by default because it's slower if you
-  # are using only default views.
-  # config.scoped_views = false
-
-  # Configure the default scope given to Warden. By default it's the first
-  # devise role declared in your routes (usually :user).
-  # config.default_scope = :user
-
-  # Set this configuration to false if you want /users/sign_out to sign out
-  # only the current scope. By default, Devise signs out all scopes.
-  # config.sign_out_all_scopes = true
-
-  # ==> Navigation configuration
-  # Lists the formats that should be treated as navigational. Formats like
-  # :html should redirect to the sign in page when the user does not have
-  # access, but formats like :xml or :json, should return 401.
-  #
-  # If you have any extra navigational formats, like :iphone or :mobile, you
-  # should add them to the navigational formats lists.
-  #
-  # The "*/*" below is required to match Internet Explorer requests.
-  # config.navigational_formats = ['*/*', :html, :turbo_stream]
-
-  # The default HTTP method used to sign out a resource. Default is :delete.
-  config.sign_out_via = :delete
-
-  # ==> OmniAuth
-  # Add a new OmniAuth provider. Check the wiki for more information on setting
-  # up on your models and hooks.
-  # config.omniauth :github, 'APP_ID', 'APP_SECRET', scope: 'user,public_repo'
-
-  # ==> Warden configuration
-  # If you want to use other strategies, that are not supported by Devise, or
-  # change the failure app, you can configure them inside the config.warden block.
-  #
-  # config.warden do |warden_config|
-  #   warden_config.intercept_401 = false
-  #   warden_config.default_strategies(scope: :user).unshift :some_external_strategy
-  # end
-
-  # ==> Mountable engine configurations
-  # When using Devise inside an engine, let's call it `MyEngine`, and this engine
-  # is mountable, there are some extra configurations to be taken into account.
-  # The following options are available, assuming the engine is mounted as:
-  #
-  #     mount MyEngine, at: '/my_engine'
-  #
-  # The router that invoked `devise_for`, in the example above, would be:
-  # config.router_name = :my_engine
-  #
-  # When using OmniAuth, Devise cannot automatically set OmniAuth path,
-  # so you need to do it manually. For the users scope, it would be:
-  # config.omniauth_path_prefix = '/my_engine/users/auth'
-
-  # ==> Hotwire/Turbo configuration
-  # When using Devise with Hotwire/Turbo, the http status for error responses
-  # and some redirects must match the following. The default in Devise for existing
-  # apps is `200 OK` and `302 Found` respectively, but new apps are generated with
-  # these new defaults that match Hotwire/Turbo behavior.
-  # Note: These might become the new default in future versions of Devise.
-  config.responder.error_status = :unprocessable_content
-  config.responder.redirect_status = :see_other
-
-  # ==> Configuration for :registerable
-
-  # When set to false, does not sign a user in automatically after their password is
-  # changed. Defaults to true, so a user is signed in automatically after changing a password.
-  # config.sign_in_after_change_password = true
-
-  config.mailer_sender = 'no-reply@drivver.com'
-
-  # OmniAuth Google
-  config.omniauth :google_oauth2,
-                  ENV.fetch("GOOGLE_CLIENT_ID", "dummy_id"),
-                  ENV.fetch("GOOGLE_CLIENT_SECRET", "dummy_secret"),
-                  {
-                    scope: "email, profile",
-                    prompt: "select_account",
-                    image_aspect_ratio: "square",
-                    image_size: 50
-                  }
+<file path="config/initializers/country_select.rb">
+ISO3166.configure do |config|
+  config.locales = [ :es, :en ]
 end
+
+CountrySelect::FORMATS[:with_calling_code] = lambda do |country|
+  name = country.translations[I18n.locale.to_s] || country.iso_short_name
+  "#{country.emoji_flag} #{name} (+#{country.country_code})"
+end
+
+CountrySelect::DEFAULTS[:format] = :with_calling_code
+CountrySelect::DEFAULTS[:locale] = :es
+CountrySelect::DEFAULTS[:priority_countries] = %w[CO MX US ES AR PE CL EC]
 </file>
 
 <file path="config/initializers/filter_parameter_logging.rb">
@@ -2912,97 +2212,21 @@ Rails.application.config.filter_parameters += [
 # end
 </file>
 
-<file path="config/initializers/simple_form_tailwind.rb">
-# frozen_string_literal: true
+<file path="config/initializers/webauthn.rb">
+WebAuthn.configure do |config|
+  # Nombre comercial que verá el usuario en la solicitud de Passkey
+  config.rp_name = "Drivver OS"
 
-SimpleForm.setup do |config|
-  config.browser_validations = false
-  config.button_class = "w-full py-3.5 px-6 bg-[#1C5686] hover:bg-blue-800 text-white font-bold rounded-xl transition-all duration-200 text-sm uppercase tracking-wide cursor-pointer text-center border-0 shadow-md active:scale-[0.99] outline-none"
+  # En producción debe ser el dominio real sin puerto (ej. "drivver.com")
+  # En desarrollo usamos localhost
+  config.rp_id = Rails.env.production? ? "drivver.com" : "localhost"
 
-  config.wrappers :default, class: "mb-4 flex flex-col" do |b|
-    b.use :html5
-    b.use :placeholder
-    b.optional :maxlength
-    b.optional :minlength
-    b.optional :pattern
-    b.optional :min_max
-    b.optional :readonly
-
-    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
-
-    b.wrapper class: "relative w-full" do |ba|
-      ba.use :input, class: "w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 shadow-none",
-                     error_class: "border-[#EF4444] focus:ring-[#EF4444]",
-                     valid_class: "border-[#10B981]"
-    end
-
-    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
-    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
+  # Debe coincidir con window.location.origin
+  config.allowed_origins = if Rails.env.production?
+    [ "https://drivver.com" ]
+  else
+    [ "http://localhost:3000" ]
   end
-
-  config.wrappers :text, class: "mb-4 flex flex-col" do |b|
-    b.use :html5
-    b.use :placeholder
-    b.optional :maxlength
-    b.optional :minlength
-    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
-
-    b.wrapper class: "relative w-full" do |ba|
-      ba.use :input, class: "w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 resize-none shadow-none",
-                     error_class: "border-[#EF4444] focus:ring-[#EF4444]"
-    end
-
-    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
-    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
-  end
-
-  config.wrappers :select, class: "mb-4 flex flex-col" do |b|
-    b.use :html5
-    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
-
-    b.wrapper class: "relative w-full" do |ba|
-      ba.use :input, class: 'w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 appearance-none bg-[url("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20fill%3D%27none%27%20viewBox%3D%270%200%2020%2020%27%20stroke%3D%27%236B7280%27%3E%3Cpath%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%20stroke-width%3D%271.5%27%20d%3D%27M6%208l4%204%204-4%27%2F%3E%3C%2Fsvg%3E")] bg-[length:1.25em_1.25em] bg-[right_0.75rem_center] bg-no-repeat pr-9 shadow-none',
-                     error_class: "border-[#EF4444] focus:ring-[#EF4444]"
-    end
-
-    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
-    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
-  end
-
-  config.wrappers :boolean, class: "mb-4 flex items-start" do |b|
-    b.use :html5
-    b.optional :readonly
-
-    b.wrapper class: "flex items-center h-5 mt-0.5" do |ba|
-      ba.use :input, class: "w-4 h-4 text-[#1C5686] bg-white dark:bg-[#0A0A0A] border border-gray-300 dark:border-gray-700 rounded focus:ring-[#1C5686] focus:ring-2 cursor-pointer shadow-none"
-    end
-
-    b.wrapper class: "ml-3 text-xs" do |bb|
-      bb.use :label, class: "font-medium text-gray-600 dark:text-gray-300 cursor-pointer select-none"
-      bb.use :hint, wrap_with: { tag: "p", class: "text-xs text-gray-400 dark:text-gray-500" }
-      bb.use :error, wrap_with: { tag: "p", class: "mt-1 text-xs text-[#EF4444] font-medium" }
-    end
-  end
-
-  config.wrappers :file, class: "mb-4 flex flex-col" do |b|
-    b.use :html5
-    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
-
-    b.wrapper class: "relative w-full" do |ba|
-      ba.use :input, class: "w-full p-2 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-xs text-gray-900 dark:text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#1C5686] file:text-white hover:file:bg-blue-800 cursor-pointer focus:outline-none shadow-none",
-                     error_class: "border-[#EF4444]"
-    end
-
-    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
-    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
-  end
-
-  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file, country: :select }
-  config.label_text = lambda { |label, required, _| required ? "#{label} <span class='text-[#EF4444] font-bold ml-0.5'>*</span>".html_safe : label }
-  config.default_wrapper = :default
-  config.boolean_style = :nested
-  config.error_notification_tag = :div
-  config.error_notification_class = 'mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700'
 end
 </file>
 
@@ -3072,6 +2296,74 @@ en:
       not_saved:
         one: "1 error prohibited this %{resource} from being saved:"
         other: "%{count} errors prohibited this %{resource} from being saved:"
+</file>
+
+<file path="config/locales/devise.es.yml">
+# Additional translations at https://github.com/heartcombo/devise/wiki/I18n
+
+es:
+  devise:
+    confirmations:
+      confirmed: "Tu correo electrónico ha sido confirmado correctamente."
+      send_instructions: "Recibirás un correo con instrucciones para confirmar tu dirección de email en unos minutos."
+      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un mensaje con instrucciones para confirmarlo en unos minutos."
+    failure:
+      already_authenticated: "Ya iniciaste sesión."
+      inactive: "Tu cuenta aún no está activada."
+      invalid: "%{authentication_keys} o contraseña inválidos."
+      locked: "Tu cuenta está bloqueada."
+      last_attempt: "Te queda un intento antes de que tu cuenta sea bloqueada."
+      not_found_in_database: "%{authentication_keys} o contraseña inválidos."
+      timeout: "Tu sesión expiró. Inicia sesión de nuevo para continuar."
+      unauthenticated: "Necesitas iniciar sesión o registrarte antes de continuar."
+      unconfirmed: "Tienes que confirmar tu correo electrónico antes de continuar."
+    mailer:
+      confirmation_instructions:
+        subject: "Instrucciones de confirmación"
+      reset_password_instructions:
+        subject: "Instrucciones para restablecer la contraseña"
+      unlock_instructions:
+        subject: "Instrucciones de desbloqueo"
+      email_changed:
+        subject: "Correo electrónico actualizado"
+      password_change:
+        subject: "Contraseña actualizada"
+    omniauth_callbacks:
+      failure: "No se pudo autenticarte desde %{kind} porque \"%{reason}\"."
+      success: "Autenticación exitosa con la cuenta de %{kind}."
+    passwords:
+      no_token: "No puedes acceder a esta página si no vienes desde un correo de restablecimiento de contraseña. Si vienes de ese correo, asegúrate de usar la URL completa que te enviamos."
+      send_instructions: "Recibirás un correo con instrucciones para restablecer tu contraseña en unos minutos."
+      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un enlace de recuperación en unos minutos."
+      updated: "Tu contraseña se cambió correctamente. Ya iniciaste sesión."
+      updated_not_active: "Tu contraseña se cambió correctamente."
+    registrations:
+      destroyed: "¡Hasta pronto! Tu cuenta se canceló correctamente. Esperamos verte de nuevo."
+      signed_up: "¡Bienvenido! Te registraste correctamente."
+      signed_up_but_inactive: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta aún no está activada."
+      signed_up_but_locked: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta está bloqueada."
+      signed_up_but_unconfirmed: "Enviamos un mensaje con un enlace de confirmación a tu correo. Sigue el enlace para activar tu cuenta."
+      update_needs_confirmation: "Actualizaste tu cuenta correctamente, pero debemos verificar tu nuevo correo. Revisa tu bandeja y sigue el enlace de confirmación."
+      updated: "Tu cuenta se actualizó correctamente."
+      updated_but_not_signed_in: "Tu cuenta se actualizó correctamente, pero como cambiaste la contraseña debes iniciar sesión de nuevo."
+    sessions:
+      signed_in: "Iniciaste sesión correctamente."
+      signed_out: "Cerraste sesión correctamente."
+      already_signed_out: "Cerraste sesión correctamente."
+    unlocks:
+      send_instructions: "Recibirás un correo con instrucciones para desbloquear tu cuenta en unos minutos."
+      send_paranoid_instructions: "Si tu cuenta existe, recibirás un correo con instrucciones para desbloquearla en unos minutos."
+      unlocked: "Tu cuenta se desbloqueó correctamente. Inicia sesión para continuar."
+  errors:
+    messages:
+      already_confirmed: "ya fue confirmado, intenta iniciar sesión"
+      confirmation_period_expired: "debe confirmarse dentro de %{period}, solicita uno nuevo"
+      expired: "ha expirado, solicita uno nuevo"
+      not_found: "no encontrado"
+      not_locked: "no estaba bloqueado"
+      not_saved:
+        one: "1 error impidió guardar este %{resource}:"
+        other: "%{count} errores impidieron guardar este %{resource}:"
 </file>
 
 <file path="config/locales/en.yml">
@@ -3802,6 +3094,50 @@ class CreateBlogReviews < ActiveRecord::Migration[8.1]
       t.text :comment
 
       t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260924152332_create_webauthn_credentials.rb">
+class CreateWebauthnCredentials < ActiveRecord::Migration[8.0]
+  def change
+    create_table :webauthn_credentials do |t|
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.string :external_id, null: false
+      t.text :public_key, null: false
+      t.bigint :sign_count, null: false, default: 0
+
+      t.timestamps
+    end
+
+    add_index :webauthn_credentials, :external_id, unique: true
+  end
+end
+</file>
+
+<file path="db/migrate/20260924170622_change_default_active_on_users.rb">
+class ChangeDefaultActiveOnUsers < ActiveRecord::Migration[8.0]
+  def change
+    change_column_default :users, :active, from: nil, to: false
+    reversible do |dir|
+      dir.up do
+        User.where(active: nil).update_all(active: false)
+      end
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260924183109_set_default_active_true_on_users.rb">
+class SetDefaultActiveTrueOnUsers < ActiveRecord::Migration[8.1]
+  def change
+    change_column_default :users, :active, from: false, to: true
+
+    reversible do |dir|
+      dir.up do
+        User.where(active: [nil, false]).update_all(active: true)
+      end
     end
   end
 end
@@ -4963,6 +4299,17 @@ FactoryBot.define do
 end
 </file>
 
+<file path="spec/factories/webauthn_credentials.rb">
+FactoryBot.define do
+  factory :webauthn_credential do
+    user { nil }
+    external_id { "MyString" }
+    public_key { "MyText" }
+    sign_count { "" }
+  end
+end
+</file>
+
 <file path="spec/models/blog_post_spec.rb">
 require 'rails_helper'
 
@@ -5111,6 +4458,14 @@ end
 require 'rails_helper'
 
 RSpec.describe Vehicle, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/webauthn_credential_spec.rb">
+require 'rails_helper'
+
+RSpec.describe WebauthnCredential, type: :model do
   pending "add some examples to (or delete) #{__FILE__}"
 end
 </file>
@@ -5559,6 +4914,51 @@ jobs:
   }
 </file>
 
+<file path="app/controllers/os/dashboards_controller.rb">
+class Os::DashboardsController < Os::BaseController
+  def show
+    authorize :dashboard, :show?
+    @user = current_user
+    set_whatsapp_cta
+  end
+
+  private
+    def set_whatsapp_cta
+      @whatsapp_number = ENV.fetch("WHATSAPP_NUMBER")
+      @whatsapp_message = URI.encode_www_form_component("Hola, soy nuevo en Drivver. Me ayudas")
+      @cta_url = "https://wa.me/#{@whatsapp_number}?text=#{@whatsapp_message}"
+    end
+end
+</file>
+
+<file path="app/controllers/users/omniauth_callbacks_controller.rb">
+module Users
+  class OmniauthCallbacksController < Devise::OmniauthCallbacksController
+    def google_oauth2
+      handle_auth("Google")
+    end
+
+    def failure
+      redirect_to new_user_session_path, alert: "No se pudo autenticar con Google."
+    end
+
+    private
+
+    def handle_auth(kind)
+      @user = User.from_omniauth(request.env["omniauth.auth"])
+
+      if @user.persisted?
+        flash[:notice] = "Inicio de sesión exitoso con #{kind}."
+        sign_in_and_redirect @user, event: :authentication
+      else
+        session["devise.google_data"] = request.env["omniauth.auth"].except(:extra)
+        redirect_to new_user_registration_url, alert: "Hubo un problema al autenticar o crear tu cuenta con #{kind}."
+      end
+    end
+  end
+end
+</file>
+
 <file path="app/controllers/landing_controller.rb">
 class LandingController < ApplicationController
   def sellers
@@ -5575,15 +4975,10 @@ class LandingController < ApplicationController
 end
 </file>
 
-<file path="app/javascript/controllers/application.js">
-import { Application } from "@hotwired/stimulus"
-
-const application = Application.start()
-
-application.debug = false
-window.Stimulus = application
-
-export { application }
+<file path="app/javascript/controllers/index.js">
+import { application } from "controllers/application"
+import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
+eagerLoadControllersFrom("controllers", application)
 </file>
 
 <file path="app/models/application_record.rb">
@@ -5593,87 +4988,206 @@ class ApplicationRecord < ActiveRecord::Base
 end
 </file>
 
-<file path="app/models/user.rb">
-class User < ApplicationRecord
-  # Configuración de Devise + OmniAuth
-  devise :database_authenticatable, :registerable,
-         :recoverable, :rememberable, :validatable,
-         :omniauthable, omniauth_providers: [:google_oauth2]
-
-  # Enum de roles globales
-  enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
-
-  # Relación para Passkeys (WebAuthn / FIDO2)
-  has_many :webauthn_credentials, dependent: :destroy
-
-  # Relaciones del ecosistema Drivver
-  has_many :organization_roles, dependent: :destroy
-  has_many :organizations, through: :organization_roles
-  has_many :vehicles, dependent: :restrict_with_error
-  has_many :family_members, dependent: :destroy
-  has_many :families, through: :family_members
-  has_many :events, dependent: :restrict_with_error
-  has_many :notes, dependent: :destroy
-  has_many :blog_reviews, dependent: :destroy
-
-  # Validaciones
-  validates :email, presence: true, uniqueness: { case_sensitive: false }
-
-  # Métodos de presentación
-  def full_name
-    "#{first_name} #{last_name}".strip
-  end
-
-  # Crear o encontrar usuario desde Google OAuth / One Tap
-  def self.from_omniauth(auth)
-    user = find_by(provider: auth.provider, uid: auth.uid) || find_by(email: auth.info.email)
-
-    if user
-      user.update(provider: auth.provider, uid: auth.uid) if user.uid != auth.uid.to_s
-      return user
-    end
-
-    create! do |record|
-      record.provider = auth.provider
-      record.uid = auth.uid
-      record.email = auth.info.email
-      record.password = Devise.friendly_token[0, 20]
-
-      if auth.info.first_name.present? || auth.info.last_name.present?
-        record.first_name = auth.info.first_name.presence || "Usuario"
-        record.last_name = auth.info.last_name.presence || "Drivver"
-      else
-        name_parts = (auth.info.name || "Usuario Drivver").split(" ")
-        record.first_name = name_parts.first
-        record.last_name = name_parts.drop(1).join(" ").presence || "Drivver"
-      end
-
-      record.id_type ||= "CC"
-      record.id_number ||= "PENDING_#{SecureRandom.hex(4)}"
-      record.phone_country_code ||= "CO"
-      record.phone_number ||= "PENDING_#{SecureRandom.hex(4)}"
-      record.city ||= "Bogotá"
-      record.active = true
+<file path="app/policies/dashboard_policy.rb">
+class DashboardPolicy < ApplicationPolicy
+    def show?
+      user.present?
     end
   end
+</file>
 
-  def self.from_google_payload(payload)
-    raise ArgumentError, "email missing" if payload["email"].blank?
-    raise ArgumentError, "email not verified" if payload["email_verified"] == false
+<file path="app/views/devise/registrations/new.html.erb">
+<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]">
+  <div class="w-full max-w-lg bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
+    <div class="text-center mb-8">
+      <div class="flex justify-center items-center gap-2 mb-3">
+        <%= image_tag "blue-logo-horizontal.webp", alt: "Drivver OS", class: "h-15 object-contain" %>
+      </div>
+      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Crear Cuenta Drivver</h2>
+      <p class="text-xs text-gray-500 mt-1 font-medium">Únete a la plataforma de gestión vehicular</p>
+    </div>
 
-    auth = OmniAuth::AuthHash.new(
-      provider: "google_oauth2",
-      uid: payload["sub"],
-      info: {
-        email: payload["email"],
-        name: payload["name"],
-        first_name: payload["given_name"],
-        last_name: payload["family_name"]
-      }
-    )
-    from_omniauth(auth)
-  end
-end
+    <%= render "devise/shared/google_auth", context: "signup", fallback_label: t("auth.google.sign_up") %>
+
+    <div class="relative flex py-2 items-center mb-6">
+      <div class="flex-grow border-t border-gray-200"></div>
+      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O REGÍSTRATE CON CORREO</span>
+      <div class="flex-grow border-t border-gray-200"></div>
+    </div>
+    
+    <%= simple_form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f| %>
+    <%= f.error_notification %>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <%= f.input :first_name,
+                      required: true,
+                      label: "Nombre",
+                      placeholder: "Carlos",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+          <%= f.input :last_name,
+                      required: true,
+                      label: "Apellido",
+                      placeholder: "Pérez",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <%= f.input :id_type,
+                      collection: [ [ "Cédula de Ciudadanía", "CC" ], [ "Cédula de Extranjería", "CE" ], [ "NIT", "NIT" ], [ "Pasaporte", "PP" ] ],
+                      label: "Tipo ID",
+                      prompt: "Seleccionar",
+                      required: true,
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
+
+          <div class="sm:col-span-2">
+            <%= f.input :id_number,
+                        required: true,
+                        label: "Número de Documento",
+                        placeholder: "1020304050",
+                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <%= f.input :phone_country_code,
+                      as: :country,
+                      priority: %w[CO MX US ES AR PE CL EC],
+                      selected: "CO",
+                      label: "País",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
+
+          <div class="sm:col-span-2">
+            <%= f.input :phone_number,
+                        required: true,
+                        label: "Teléfono Móvil",
+                        placeholder: "3001234567",
+                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+          </div>
+        </div>
+
+        <%= f.input :city,
+                    required: true,
+                    label: "Ciudad",
+                    placeholder: "Bogotá",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+        <%= f.input :email,
+                    required: true,
+                    label: "Correo Electrónico",
+                    placeholder: "ejemplo@drivver.com",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <%= f.input :password,
+                      required: true,
+                      label: "Contraseña",
+                      hint: "Mínimo 6 caracteres",
+                      placeholder: "••••••••",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      hint_html: { class: "text-[10px] text-gray-400 mt-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+          <%= f.input :password_confirmation,
+                      required: true,
+                      label: "Confirmar Contraseña",
+                      placeholder: "••••••••",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        </div>
+      </div>
+
+      <div class="mt-8">
+        <%= f.button :submit, "CREAR MI CUENTA DRIVVER", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
+      </div>
+    <% end %>
+
+    <div class="mt-6 text-center text-xs text-gray-500 pt-4 border-t border-gray-100">
+      <p>
+        ¿Ya tienes una cuenta?
+        <%= link_to "Inicia sesión aquí", new_session_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
+      </p>
+    </div>
+  </div>
+</div>
+</file>
+
+<file path="app/views/devise/sessions/new.html.erb">
+<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]" data-controller="passkey">
+  <div class="w-full max-w-md bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
+    <div class="text-center mb-8">
+      <div class="flex justify-center items-center gap-2 mb-3">
+        <%= image_tag 'blue-logo-horizontal.webp', alt: 'Drivver OS', class: 'h-15 object-contain' rescue nil %>
+      </div>
+      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Iniciar Sesión</h2>
+      <p class="text-xs text-gray-500 mt-1 font-medium">Ingresa a tu ecosistema vehicular</p>
+    </div>
+    <div data-passkey-target="error" class="hidden mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-semibold border border-red-100"></div>
+    <%= render "devise/shared/google_auth" %>
+    <div class="mb-4">
+      <button type="button" 
+              data-action="click->passkey#authenticate" 
+              class="w-full flex items-center justify-center gap-3 py-3 px-4 bg-sky-50 text-sky-800 border border-sky-200 font-extrabold rounded-xl text-xs hover:bg-sky-100 transition-colors shadow-sm cursor-pointer">
+        <svg class="w-5 h-5 text-sky-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 004 11c0 2.473.345 4.866.99 7.132M13 11a1 1 0 11-2 0 1 1 0 012 0z"/>
+        </svg>
+        <span>Ingresar con Passkey (FaceID / Huella)</span>
+      </button>
+    </div>
+    <div class="relative flex py-2 items-center mb-6">
+      <div class="flex-grow border-t border-gray-200"></div>
+      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O CON TU CORREO</span>
+      <div class="flex-grow border-t border-gray-200"></div>
+    </div>
+    <%= simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f| %>
+      <div class="space-y-4">
+        <%= f.input :email, 
+                    required: true, 
+                    autofocus: true, 
+                    placeholder: "ejemplo@drivver.com", 
+                    label: "Correo Electrónico",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        <%= f.input :password, 
+                    required: true, 
+                    placeholder: "••••••••", 
+                    label: "Contraseña",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        <% if devise_mapping.rememberable? %>
+          <div class="flex items-center pt-1">
+            <%= f.input :remember_me, 
+                        as: :boolean, 
+                        label: "Recordar mi sesión",
+                        wrapper_html: { class: "flex items-center gap-2" },
+                        label_html: { class: "text-xs font-medium text-gray-600 cursor-pointer select-none" },
+                        input_html: { class: "w-4 h-4 text-sky-600 border-gray-300 rounded focus:ring-sky-500 cursor-pointer" } %>
+          </div>
+        <% end %>
+      </div>
+      <div class="mt-6">
+        <%= f.button :submit, "INGRESAR CON CONTRASEÑA", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
+      </div>
+    <% end %>
+    <div class="mt-6 text-center text-xs text-gray-500 space-y-2 pt-2 border-t border-gray-100">
+      <p>
+        ¿No tienes una cuenta? 
+        <%= link_to "Regístrate aquí", new_registration_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
+      </p>
+      <p>
+        <%= link_to "¿Olvidaste tu contraseña?", new_password_path(resource_name), class: "text-gray-400 hover:text-gray-600 transition-colors" %>
+      </p>
+    </div>
+  </div>
+</div>
 </file>
 
 <file path="app/views/layouts/application.html.erb">
@@ -5767,11 +5281,640 @@ export RUBY_DEBUG_LAZY="true"
 exec foreman start -f Procfile.dev "$@"
 </file>
 
+<file path="config/initializers/devise.rb">
+# frozen_string_literal: true
+
+# Assuming you have not yet modified this file, each configuration option below
+# is set to its default value. Note that some are commented out while others
+# are not: uncommented lines are intended to protect your configuration from
+# breaking changes in upgrades (i.e., in the event that future versions of
+# Devise change the default values for those options).
+#
+# Use this hook to configure devise mailer, warden hooks and so forth.
+# Many of these configuration options can be set straight in your model.
+Devise.setup do |config|
+  # The secret key used by Devise. Devise uses this key to generate
+  # random tokens. Changing this key will render invalid all existing
+  # confirmation, reset password and unlock tokens in the database.
+  # Devise will use the `secret_key_base` as its `secret_key`
+  # by default. You can change it below and use your own secret key.
+  # config.secret_key = 'ed5105d2a9af649354f33818ed18b8fb1530bbe65573f62aa74a5bd5ea946d9738b7ed9d6d78a7ffab6a106aae0ea5cc58a46fdf55f5383021a3bbed73320a98'
+
+  # ==> Controller configuration
+  # Configure the parent class to the devise controllers.
+  # config.parent_controller = 'DeviseController'
+
+  # ==> Mailer Configuration
+  # Configure the e-mail address which will be shown in Devise::Mailer,
+  # note that it will be overwritten if you use your own mailer class
+  # with default "from" parameter.
+  config.mailer_sender = 'please-change-me-at-config-initializers-devise@example.com'
+
+  # Configure the class responsible to send e-mails.
+  # config.mailer = 'Devise::Mailer'
+
+  # Configure the parent class responsible to send e-mails.
+  # config.parent_mailer = 'ActionMailer::Base'
+
+  # ==> ORM configuration
+  # Load and configure the ORM. Supports :active_record (default) and
+  # :mongoid (bson_ext recommended) by default. Other ORMs may be
+  # available as additional gems.
+  require 'devise/orm/active_record'
+
+  # ==> Configuration for any authentication mechanism
+  # Configure which keys are used when authenticating a user. The default is
+  # just :email. You can configure it to use [:username, :subdomain], so for
+  # authenticating a user, both parameters are required. Remember that those
+  # parameters are used only when authenticating and not when retrieving from
+  # session. If you need permissions, you should implement that in a before filter.
+  # You can also supply a hash where the value is a boolean determining whether
+  # or not authentication should be aborted when the value is not present.
+  # config.authentication_keys = [:email]
+
+  # Configure parameters from the request object used for authentication. Each entry
+  # given should be a request method and it will automatically be passed to the
+  # find_for_authentication method and considered in your model lookup. For instance,
+  # if you set :request_keys to [:subdomain], :subdomain will be used on authentication.
+  # The same considerations mentioned for authentication_keys also apply to request_keys.
+  # config.request_keys = []
+
+  # Configure which authentication keys should be case-insensitive.
+  # These keys will be downcased upon creating or modifying a user and when used
+  # to authenticate or find a user. Default is :email.
+  config.case_insensitive_keys = [:email]
+
+  # Configure which authentication keys should have whitespace stripped.
+  # These keys will have whitespace before and after removed upon creating or
+  # modifying a user and when used to authenticate or find a user. Default is :email.
+  config.strip_whitespace_keys = [:email]
+
+  # Tell if authentication through request.params is enabled. True by default.
+  # It can be set to an array that will enable params authentication only for the
+  # given strategies, for example, `config.params_authenticatable = [:database]` will
+  # enable it only for database (email + password) authentication.
+  # config.params_authenticatable = true
+
+  # Tell if authentication through HTTP Auth is enabled. False by default.
+  # It can be set to an array that will enable http authentication only for the
+  # given strategies, for example, `config.http_authenticatable = [:database]` will
+  # enable it only for database authentication.
+  # For API-only applications to support authentication "out-of-the-box", you will likely want to
+  # enable this with :database unless you are using a custom strategy.
+  # The supported strategies are:
+  # :database      = Support basic authentication with authentication key + password
+  # config.http_authenticatable = false
+
+  # If 401 status code should be returned for AJAX requests. True by default.
+  # config.http_authenticatable_on_xhr = true
+
+  # The realm used in Http Basic Authentication. 'Application' by default.
+  # config.http_authentication_realm = 'Application'
+
+  # It will change confirmation, password recovery and other workflows
+  # to behave the same regardless if the e-mail provided was right or wrong.
+  # Does not affect registerable.
+  # config.paranoid = true
+
+  # By default Devise will store the user in session. You can skip storage for
+  # particular strategies by setting this option.
+  # Notice that if you are skipping storage for all authentication paths, you
+  # may want to disable generating routes to Devise's sessions controller by
+  # passing skip: :sessions to `devise_for` in your config/routes.rb
+  config.skip_session_storage = [:http_auth]
+
+  # By default, Devise cleans up the CSRF token on authentication to
+  # avoid CSRF token fixation attacks. This means that, when using AJAX
+  # requests for sign in and sign up, you need to get a new CSRF token
+  # from the server. You can disable this option at your own risk.
+  # config.clean_up_csrf_token_on_authentication = true
+
+  # When false, Devise will not attempt to reload routes on eager load.
+  # This can reduce the time taken to boot the app but if your application
+  # requires the Devise mappings to be loaded during boot time the application
+  # won't boot properly.
+  # config.reload_routes = true
+
+  # ==> Configuration for :database_authenticatable
+  # For bcrypt, this is the cost for hashing the password and defaults to 12. If
+  # using other algorithms, it sets how many times you want the password to be hashed.
+  # The number of stretches used for generating the hashed password are stored
+  # with the hashed password. This allows you to change the stretches without
+  # invalidating existing passwords.
+  #
+  # Limiting the stretches to just one in testing will increase the performance of
+  # your test suite dramatically. However, it is STRONGLY RECOMMENDED to not use
+  # a value less than 10 in other environments. Note that, for bcrypt (the default
+  # algorithm), the cost increases exponentially with the number of stretches (e.g.
+  # a value of 20 is already extremely slow: approx. 60 seconds for 1 calculation).
+  config.stretches = Rails.env.test? ? 1 : 12
+
+  # Set up a pepper to generate the hashed password.
+  # config.pepper = '473892b4c76a344d2b6f5dddabd7ce839d33a1ad9617f5fb19e05c3e70e1903d2c78e4758bb53856ac0c9cd5445ffa2d70ce2610581fb44111bca7c43d2de5a6'
+
+  # Send a notification to the original email when the user's email is changed.
+  # config.send_email_changed_notification = false
+
+  # Send a notification email when the user's password is changed.
+  # config.send_password_change_notification = false
+
+  # ==> Configuration for :confirmable
+  # A period that the user is allowed to access the website even without
+  # confirming their account. For instance, if set to 2.days, the user will be
+  # able to access the website for two days without confirming their account,
+  # access will be blocked just in the third day.
+  # You can also set it to nil, which will allow the user to access the website
+  # without confirming their account.
+  # Default is 0.days, meaning the user cannot access the website without
+  # confirming their account.
+  # config.allow_unconfirmed_access_for = 2.days
+
+  # A period that the user is allowed to confirm their account before their
+  # token becomes invalid. For example, if set to 3.days, the user can confirm
+  # their account within 3 days after the mail was sent, but on the fourth day
+  # their account can't be confirmed with the token any more.
+  # Default is nil, meaning there is no restriction on how long a user can take
+  # before confirming their account.
+  # config.confirm_within = 3.days
+
+  # If true, requires any email changes to be confirmed (exactly the same way as
+  # initial account confirmation) to be applied. Requires additional unconfirmed_email
+  # db field (see migrations). Until confirmed, new email is stored in
+  # unconfirmed_email column, and copied to email column on successful confirmation.
+  # Also, when used in conjunction with `send_email_changed_notification`,
+  # the notification is sent to the original email when the change is requested,
+  # not when the unconfirmed email is confirmed.
+  config.reconfirmable = true
+
+  # Defines which key will be used when confirming an account
+  # config.confirmation_keys = [:email]
+
+  # ==> Configuration for :rememberable
+  # The time the user will be remembered without asking for credentials again.
+  # config.remember_for = 2.weeks
+
+  # Invalidates all the remember me tokens when the user signs out.
+  config.expire_all_remember_me_on_sign_out = true
+
+  # If true, extends the user's remember period when remembered via cookie.
+  # config.extend_remember_period = false
+
+  # Options to be passed to the created cookie. For instance, you can set
+  # secure: true in order to force SSL only cookies.
+  # config.rememberable_options = {}
+
+  # ==> Configuration for :validatable
+  # Range for password length.
+  config.password_length = 6..128
+
+  # Email regex used to validate email formats. It simply asserts that
+  # one (and only one) @ exists in the given string. This is mainly
+  # to give user feedback and not to assert the e-mail validity.
+  config.email_regexp = /\A[^@\s]+@[^@\s]+\z/
+
+  # ==> Configuration for :timeoutable
+  # The time you want to timeout the user session without activity. After this
+  # time the user will be asked for credentials again. Default is 30 minutes.
+  # config.timeout_in = 30.minutes
+
+  # ==> Configuration for :lockable
+  # Defines which strategy will be used to lock an account.
+  # :failed_attempts = Locks an account after a number of failed attempts to sign in.
+  # :none            = No lock strategy. You should handle locking by yourself.
+  # config.lock_strategy = :failed_attempts
+
+  # Defines which key will be used when locking and unlocking an account
+  # config.unlock_keys = [:email]
+
+  # Defines which strategy will be used to unlock an account.
+  # :email = Sends an unlock link to the user email
+  # :time  = Re-enables login after a certain amount of time (see :unlock_in below)
+  # :both  = Enables both strategies
+  # :none  = No unlock strategy. You should handle unlocking by yourself.
+  # config.unlock_strategy = :both
+
+  # Number of authentication tries before locking an account if lock_strategy
+  # is failed attempts.
+  # config.maximum_attempts = 20
+
+  # Time interval to unlock the account if :time is enabled as unlock_strategy.
+  # config.unlock_in = 1.hour
+
+  # Warn on the last attempt before the account is locked.
+  # config.last_attempt_warning = true
+
+  # ==> Configuration for :recoverable
+  #
+  # Defines which key will be used when recovering the password for an account
+  # config.reset_password_keys = [:email]
+
+  # Time interval you can reset your password with a reset password key.
+  # Don't put a too small interval or your users won't have the time to
+  # change their passwords.
+  config.reset_password_within = 6.hours
+
+  # When set to false, does not sign a user in automatically after their password is
+  # reset. Defaults to true, so a user is signed in automatically after a reset.
+  # config.sign_in_after_reset_password = true
+
+  # ==> Configuration for :encryptable
+  # Allow you to use another hashing or encryption algorithm besides bcrypt (default).
+  # You can use :sha1, :sha512 or algorithms from others authentication tools as
+  # :clearance_sha1, :authlogic_sha512 (then you should set stretches above to 20
+  # for default behavior) and :restful_authentication_sha1 (then you should set
+  # stretches to 10, and copy REST_AUTH_SITE_KEY to pepper).
+  #
+  # Require the `devise-encryptable` gem when using anything other than bcrypt
+  # config.encryptor = :sha512
+
+  # ==> Scopes configuration
+  # Turn scoped views on. Before rendering "sessions/new", it will first check for
+  # "users/sessions/new". It's turned off by default because it's slower if you
+  # are using only default views.
+  # config.scoped_views = false
+
+  # Configure the default scope given to Warden. By default it's the first
+  # devise role declared in your routes (usually :user).
+  # config.default_scope = :user
+
+  # Set this configuration to false if you want /users/sign_out to sign out
+  # only the current scope. By default, Devise signs out all scopes.
+  # config.sign_out_all_scopes = true
+
+  # ==> Navigation configuration
+  # Lists the formats that should be treated as navigational. Formats like
+  # :html should redirect to the sign in page when the user does not have
+  # access, but formats like :xml or :json, should return 401.
+  #
+  # If you have any extra navigational formats, like :iphone or :mobile, you
+  # should add them to the navigational formats lists.
+  #
+  # The "*/*" below is required to match Internet Explorer requests.
+  # config.navigational_formats = ['*/*', :html, :turbo_stream]
+
+  # The default HTTP method used to sign out a resource. Default is :delete.
+  config.sign_out_via = :delete
+
+  # ==> OmniAuth
+  # Add a new OmniAuth provider. Check the wiki for more information on setting
+  # up on your models and hooks.
+  # config.omniauth :github, 'APP_ID', 'APP_SECRET', scope: 'user,public_repo'
+
+  # ==> Warden configuration
+  # If you want to use other strategies, that are not supported by Devise, or
+  # change the failure app, you can configure them inside the config.warden block.
+  #
+  # config.warden do |warden_config|
+  #   warden_config.intercept_401 = false
+  #   warden_config.default_strategies(scope: :user).unshift :some_external_strategy
+  # end
+
+  # ==> Mountable engine configurations
+  # When using Devise inside an engine, let's call it `MyEngine`, and this engine
+  # is mountable, there are some extra configurations to be taken into account.
+  # The following options are available, assuming the engine is mounted as:
+  #
+  #     mount MyEngine, at: '/my_engine'
+  #
+  # The router that invoked `devise_for`, in the example above, would be:
+  # config.router_name = :my_engine
+  #
+  # When using OmniAuth, Devise cannot automatically set OmniAuth path,
+  # so you need to do it manually. For the users scope, it would be:
+  # config.omniauth_path_prefix = '/my_engine/users/auth'
+
+  # ==> Hotwire/Turbo configuration
+  # When using Devise with Hotwire/Turbo, the http status for error responses
+  # and some redirects must match the following. The default in Devise for existing
+  # apps is `200 OK` and `302 Found` respectively, but new apps are generated with
+  # these new defaults that match Hotwire/Turbo behavior.
+  # Note: These might become the new default in future versions of Devise.
+  config.responder.error_status = :unprocessable_content
+  config.responder.redirect_status = :see_other
+
+  # ==> Configuration for :registerable
+
+  # When set to false, does not sign a user in automatically after their password is
+  # changed. Defaults to true, so a user is signed in automatically after changing a password.
+  # config.sign_in_after_change_password = true
+
+  config.mailer_sender = 'no-reply@drivver.com'
+
+  # OmniAuth Google
+  config.omniauth :google_oauth2,
+                  ENV.fetch("GOOGLE_CLIENT_ID", "dummy_id"),
+                  ENV.fetch("GOOGLE_CLIENT_SECRET", "dummy_secret"),
+                  {
+                    scope: "email, profile",
+                    prompt: "select_account",
+                    image_aspect_ratio: "square",
+                    image_size: 50
+                  }
+end
+</file>
+
 <file path="config/initializers/generators.rb">
 Rails.application.config.generators do |g|
     g.orm :active_record, primary_key_type: :uuid
     g.test_framework :rspec, fixture: false
   end
+</file>
+
+<file path="config/initializers/simple_form_tailwind.rb">
+# frozen_string_literal: true
+
+SimpleForm.setup do |config|
+  config.browser_validations = false
+  config.button_class = "w-full py-3.5 px-6 bg-[#1C5686] hover:bg-blue-800 text-white font-bold rounded-xl transition-all duration-200 text-sm uppercase tracking-wide cursor-pointer text-center border-0 shadow-md active:scale-[0.99] outline-none"
+
+  config.wrappers :default, class: "mb-4 flex flex-col" do |b|
+    b.use :html5
+    b.use :placeholder
+    b.optional :maxlength
+    b.optional :minlength
+    b.optional :pattern
+    b.optional :min_max
+    b.optional :readonly
+
+    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
+
+    b.wrapper class: "relative w-full" do |ba|
+      ba.use :input, class: "w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 shadow-none",
+                     error_class: "border-[#EF4444] focus:ring-[#EF4444]",
+                     valid_class: "border-[#10B981]"
+    end
+
+    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
+    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
+  end
+
+  config.wrappers :text, class: "mb-4 flex flex-col" do |b|
+    b.use :html5
+    b.use :placeholder
+    b.optional :maxlength
+    b.optional :minlength
+    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
+
+    b.wrapper class: "relative w-full" do |ba|
+      ba.use :input, class: "w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 resize-none shadow-none",
+                     error_class: "border-[#EF4444] focus:ring-[#EF4444]"
+    end
+
+    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
+    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
+  end
+
+  config.wrappers :select, class: "mb-4 flex flex-col" do |b|
+    b.use :html5
+    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
+
+    b.wrapper class: "relative w-full" do |ba|
+      ba.use :input, class: 'w-full p-3 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-[#1C5686] focus:border-transparent outline-none transition-all duration-200 appearance-none bg-[url("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20fill%3D%27none%27%20viewBox%3D%270%200%2020%2020%27%20stroke%3D%27%236B7280%27%3E%3Cpath%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%20stroke-width%3D%271.5%27%20d%3D%27M6%208l4%204%204-4%27%2F%3E%3C%2Fsvg%3E")] bg-[length:1.25em_1.25em] bg-[right_0.75rem_center] bg-no-repeat pr-9 shadow-none',
+                     error_class: "border-[#EF4444] focus:ring-[#EF4444]"
+    end
+
+    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
+    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
+  end
+
+  config.wrappers :boolean, class: "mb-4 flex items-start" do |b|
+    b.use :html5
+    b.optional :readonly
+
+    b.wrapper class: "flex items-center h-5 mt-0.5" do |ba|
+      ba.use :input, class: "w-4 h-4 text-[#1C5686] bg-white dark:bg-[#0A0A0A] border border-gray-300 dark:border-gray-700 rounded focus:ring-[#1C5686] focus:ring-2 cursor-pointer shadow-none"
+    end
+
+    b.wrapper class: "ml-3 text-xs" do |bb|
+      bb.use :label, class: "font-medium text-gray-600 dark:text-gray-300 cursor-pointer select-none"
+      bb.use :hint, wrap_with: { tag: "p", class: "text-xs text-gray-400 dark:text-gray-500" }
+      bb.use :error, wrap_with: { tag: "p", class: "mt-1 text-xs text-[#EF4444] font-medium" }
+    end
+  end
+
+  config.wrappers :file, class: "mb-4 flex flex-col" do |b|
+    b.use :html5
+    b.use :label, class: "block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 tracking-tight"
+
+    b.wrapper class: "relative w-full" do |ba|
+      ba.use :input, class: "w-full p-2 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-xl text-xs text-gray-900 dark:text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#1C5686] file:text-white hover:file:bg-blue-800 cursor-pointer focus:outline-none shadow-none",
+                     error_class: "border-[#EF4444]"
+    end
+
+    b.use :error, wrap_with: { tag: "p", class: "mt-1.5 text-xs text-[#EF4444] font-medium" }
+    b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
+  end
+
+  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file, country: :select }
+  config.label_text = lambda { |label, required, _| required ? "#{label} <span class='text-[#EF4444] font-bold ml-0.5'>*</span>".html_safe : label }
+  config.default_wrapper = :default
+  config.boolean_style = :nested
+  config.error_notification_tag = :div
+  config.error_notification_class = 'mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700'
+end
+</file>
+
+<file path="config/application.rb">
+require_relative "boot"
+
+require "rails/all"
+
+# Require the gems listed in Gemfile, including any gems
+# you've limited to :test, :development, or :production.
+Bundler.require(*Rails.groups)
+
+module Drivver
+  class Application < Rails::Application
+    # Initialize configuration defaults for originally generated Rails version.
+    config.load_defaults 8.1
+    config.i18n.available_locales = [ :es, :en ]
+    config.i18n.default_locale = :es
+
+    # Please, add to the `ignore` list any other `lib` subdirectories that do
+    # not contain `.rb` files, or that should not be reloaded or eager loaded.
+    # Common ones are `templates`, `generators`, or `middleware`, for example.
+    config.autoload_lib(ignore: %w[assets tasks])
+
+    # Configuration for the application, engines, and railties goes here.
+    #
+    # These settings can be overridden in specific environments using the files
+    # in config/environments, which are processed later.
+    #
+    # config.time_zone = "Central Time (US & Canada)"
+    # config.eager_load_paths << Rails.root.join("extras")
+  end
+end
+</file>
+
+<file path="config/database.yml">
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  username: <%= ENV.fetch("POSTGRES_USER", "postgres") %>
+  password: <%= ENV.fetch("POSTGRES_PASSWORD", "") %>
+  host: <%= ENV.fetch("POSTGRES_HOST", "localhost") %>
+
+development:
+  <<: *default
+  database: drivver_os_development
+
+test:
+  <<: *default
+  database: drivver_os_test
+
+production:
+  <<: *default
+  database: drivver_os_production
+  username: drivver
+  password: <%= ENV["DRIVVER_DATABASE_PASSWORD"] %>
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files for more about ignoring files.
+#
+# Temporary files generated by your text editor or operating system
+# belong in git's global ignore instead:
+# `$XDG_CONFIG_HOME/git/ignore` or `~/.config/git/ignore`
+
+# Ignore bundler config.
+/.bundle
+
+# Ignore all environment files.
+/.env*
+
+# Ignore all logfiles and tempfiles.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+# Ignore pidfiles, but keep the directory.
+/tmp/pids/*
+!/tmp/pids/
+!/tmp/pids/.keep
+
+# Ignore storage (uploaded files in development and any SQLite databases).
+/storage/*
+!/storage/.keep
+/tmp/storage/*
+!/tmp/storage/
+!/tmp/storage/.keep
+
+/public/assets
+
+# Ignore key files for decrypting credentials and more.
+/config/*.key
+
+
+/app/assets/builds/*
+!/app/assets/builds/.keep
+</file>
+
+<file path="app/javascript/controllers/application.js">
+import { Application } from "@hotwired/stimulus"
+
+const application = Application.start()
+
+application.debug = false
+window.Stimulus = application
+
+export { application }
+</file>
+
+<file path="app/models/user.rb">
+class User < ApplicationRecord
+  # Configuración de Devise + OmniAuth
+  devise :database_authenticatable, :registerable,
+         :recoverable, :rememberable, :validatable,
+         :omniauthable, omniauth_providers: [:google_oauth2]
+
+  # Enum de roles globales
+  enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
+
+  # Relación para Passkeys (WebAuthn / FIDO2)
+  has_many :webauthn_credentials, dependent: :destroy
+
+  # Relaciones del ecosistema Drivver
+  has_many :organization_roles, dependent: :destroy
+  has_many :organizations, through: :organization_roles
+  has_many :vehicles, dependent: :restrict_with_error
+  has_many :family_members, dependent: :destroy
+  has_many :families, through: :family_members
+  has_many :events, dependent: :restrict_with_error
+  has_many :notes, dependent: :destroy
+  has_many :blog_reviews, dependent: :destroy
+
+  # Validaciones
+  validates :email, presence: true, uniqueness: { case_sensitive: false }
+
+  # Métodos de presentación
+  def full_name
+    "#{first_name} #{last_name}".strip
+  end
+
+  def internal_team?
+    super_admin? || developer? || c_level?
+  end
+
+  def active_subscription
+    subscriptions.where(status: 'active').where('expires_at > ?', Date.today).first
+  end
+  
+  def current_plan
+    active_subscription&.plan || Plan.find_by(name: 'basic')
+  end
+
+  # Crear o encontrar usuario desde Google OAuth / One Tap
+  def self.from_omniauth(auth)
+    user = find_by(provider: auth.provider, uid: auth.uid) || find_by(email: auth.info.email)
+
+    if user
+      user.update(provider: auth.provider, uid: auth.uid) if user.uid != auth.uid.to_s
+      return user
+    end
+
+    create! do |record|
+      record.provider = auth.provider
+      record.uid = auth.uid
+      record.email = auth.info.email
+      record.password = Devise.friendly_token[0, 20]
+
+      if auth.info.first_name.present? || auth.info.last_name.present?
+        record.first_name = auth.info.first_name.presence || "Usuario"
+        record.last_name = auth.info.last_name.presence || "Drivver"
+      else
+        name_parts = (auth.info.name || "Usuario Drivver").split(" ")
+        record.first_name = name_parts.first
+        record.last_name = name_parts.drop(1).join(" ").presence || "Drivver"
+      end
+
+      record.id_type ||= "CC"
+      record.id_number ||= "PENDING_#{SecureRandom.hex(4)}"
+      record.phone_country_code ||= "CO"
+      record.phone_number ||= "PENDING_#{SecureRandom.hex(4)}"
+      record.city ||= "Bogotá"
+      record.active = true
+    end
+  end
+
+  def self.from_google_payload(payload)
+    raise ArgumentError, "email missing" if payload["email"].blank?
+    raise ArgumentError, "email not verified" if payload["email_verified"] == false
+
+    auth = OmniAuth::AuthHash.new(
+      provider: "google_oauth2",
+      uid: payload["sub"],
+      info: {
+        email: payload["email"],
+        name: payload["name"],
+        first_name: payload["given_name"],
+        last_name: payload["family_name"]
+      }
+    )
+    from_omniauth(auth)
+  end
+end
 </file>
 
 <file path="config/locales/es.yml">
@@ -5886,103 +6029,6 @@ es:
       whatsapp_message: "Hola, quiero conocer más de Drivver para comprar un vehículo."
 </file>
 
-<file path="config/application.rb">
-require_relative "boot"
-
-require "rails/all"
-
-# Require the gems listed in Gemfile, including any gems
-# you've limited to :test, :development, or :production.
-Bundler.require(*Rails.groups)
-
-module Drivver
-  class Application < Rails::Application
-    # Initialize configuration defaults for originally generated Rails version.
-    config.load_defaults 8.1
-    config.i18n.available_locales = [ :es, :en ]
-    config.i18n.default_locale = :es
-
-    # Please, add to the `ignore` list any other `lib` subdirectories that do
-    # not contain `.rb` files, or that should not be reloaded or eager loaded.
-    # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
-
-    # Configuration for the application, engines, and railties goes here.
-    #
-    # These settings can be overridden in specific environments using the files
-    # in config/environments, which are processed later.
-    #
-    # config.time_zone = "Central Time (US & Canada)"
-    # config.eager_load_paths << Rails.root.join("extras")
-  end
-end
-</file>
-
-<file path="config/database.yml">
-default: &default
-  adapter: postgresql
-  encoding: unicode
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  username: <%= ENV.fetch("POSTGRES_USER", "postgres") %>
-  password: <%= ENV.fetch("POSTGRES_PASSWORD", "") %>
-  host: <%= ENV.fetch("POSTGRES_HOST", "localhost") %>
-
-development:
-  <<: *default
-  database: drivver_os_development
-
-test:
-  <<: *default
-  database: drivver_os_test
-
-production:
-  <<: *default
-  database: drivver_os_production
-  username: drivver
-  password: <%= ENV["DRIVVER_DATABASE_PASSWORD"] %>
-</file>
-
-<file path=".gitignore">
-# See https://help.github.com/articles/ignoring-files for more about ignoring files.
-#
-# Temporary files generated by your text editor or operating system
-# belong in git's global ignore instead:
-# `$XDG_CONFIG_HOME/git/ignore` or `~/.config/git/ignore`
-
-# Ignore bundler config.
-/.bundle
-
-# Ignore all environment files.
-/.env*
-
-# Ignore all logfiles and tempfiles.
-/log/*
-/tmp/*
-!/log/.keep
-!/tmp/.keep
-
-# Ignore pidfiles, but keep the directory.
-/tmp/pids/*
-!/tmp/pids/
-!/tmp/pids/.keep
-
-# Ignore storage (uploaded files in development and any SQLite databases).
-/storage/*
-!/storage/.keep
-/tmp/storage/*
-!/tmp/storage/
-!/tmp/storage/.keep
-
-/public/assets
-
-# Ignore key files for decrypting credentials and more.
-/config/*.key
-
-
-/app/assets/builds/*
-!/app/assets/builds/.keep
-</file>
-
 <file path="app/controllers/application_controller.rb">
 class ApplicationController < ActionController::Base
   allow_browser versions: :modern
@@ -6080,7 +6126,7 @@ end
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_24_170622) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_24_183109) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
@@ -6309,7 +6355,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_170622) do
   end
 
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
-    t.boolean "active", default: false
+    t.boolean "active", default: true
     t.string "city"
     t.datetime "created_at", null: false
     t.string "email", default: "", null: false
