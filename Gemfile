@@ -32,15 +32,17 @@ gem "friendly_id"
 gem "devise", "~> 5.0"
 gem "omniauth"
 gem "omniauth-google-oauth2"
-gem "omniauth-apple"
 gem "omniauth-rails_csrf_protection"
+gem "googleauth"
 gem "pundit"
+gem "webauthn", "~> 3.4"
 
 # ===================================================================
 # INTERFAZ DE USUARIO, FORMULARIOS & DASHBOARDS
 # ===================================================================
 gem "tailwindcss-rails", "~> 4.6"
 gem "simple_form"
+gem "country_select"
 gem "pagy"
 gem "chartkick", "~> 5.2"
 gem "groupdate", "~> 6.8"

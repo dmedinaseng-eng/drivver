@@ -326,15 +326,4 @@ Devise.setup do |config|
                     image_aspect_ratio: "square",
                     image_size: 50
                   }
-
-  # OmniAuth Apple
-  config.omniauth :apple,
-                  ENV.fetch("APPLE_CLIENT_ID", "dummy_id"),
-                  "",
-                  {
-                    scope: "email name",
-                    team_id: ENV.fetch("APPLE_TEAM_ID", "dummy_team"),
-                    key_id: ENV.fetch("APPLE_KEY_ID", "dummy_key"),
-                    pem: ENV.fetch("APPLE_PRIVATE_KEY", "dummy_pem")
-                  }
 end

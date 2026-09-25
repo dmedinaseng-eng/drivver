@@ -1,4 +1,4 @@
-class Os::DashboardsController < Os::ApplicationController
+class Os::DashboardsController < Os::BaseController
   def show
     authorize :dashboard, :show?
     @user = current_user

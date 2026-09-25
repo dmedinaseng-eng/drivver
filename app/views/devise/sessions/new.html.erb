@@ -1,8 +1,5 @@
-<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]">
-  <!-- Tarjeta Blanca Flotante -->
+<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]" data-controller="passkey">
   <div class="w-full max-w-md bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
-    
-    <!-- Encabezado con Logo Drivver -->
     <div class="text-center mb-8">
       <div class="flex justify-center items-center gap-2 mb-3">
         <%= image_tag 'blue-logo-horizontal.webp', alt: 'Drivver OS', class: 'h-15 object-contain' rescue nil %>
@@ -10,36 +7,23 @@
       <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Iniciar Sesión</h2>
       <p class="text-xs text-gray-500 mt-1 font-medium">Ingresa a tu ecosistema vehicular</p>
     </div>
-
-    <!-- Botones OAuth (Google & Apple) -->
-    <div class="flex flex-col gap-3 mb-6">
-      <%= button_to user_google_oauth2_omniauth_authorize_path, method: :post, data: { turbo: false }, class: "w-full flex items-center justify-center gap-3 py-3 px-4 bg-white text-gray-700 font-bold rounded-xl text-xs border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm cursor-pointer" do %>
-        <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+    <div data-passkey-target="error" class="hidden mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-semibold border border-red-100"></div>
+    <%= render "devise/shared/google_auth" %>
+    <div class="mb-4">
+      <button type="button" 
+              data-action="click->passkey#authenticate" 
+              class="w-full flex items-center justify-center gap-3 py-3 px-4 bg-sky-50 text-sky-800 border border-sky-200 font-extrabold rounded-xl text-xs hover:bg-sky-100 transition-colors shadow-sm cursor-pointer">
+        <svg class="w-5 h-5 text-sky-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 004 11c0 2.473.345 4.866.99 7.132M13 11a1 1 0 11-2 0 1 1 0 012 0z"/>
         </svg>
-        <span>Continuar con Google</span>
-      <% end %>
-
-      <%= button_to user_apple_omniauth_authorize_path, method: :post, data: { turbo: false }, class: "w-full flex items-center justify-center gap-3 py-3 px-4 bg-black text-white font-bold rounded-xl text-xs hover:bg-gray-800 transition-colors shadow-sm cursor-pointer" do %>
-        <!-- Logo Apple con Vector Limpio y Proporcional -->
-        <svg class="w-4 h-4 fill-current flex-shrink-0 mb-0.5" viewBox="0 0 384 512">
-          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 52.3-12 69.5-34.3z"/>
-        </svg>
-        <span>Continuar con Apple</span>
-      <% end %>
+        <span>Ingresar con Passkey (FaceID / Huella)</span>
+      </button>
     </div>
-
-    <!-- Divisor -->
     <div class="relative flex py-2 items-center mb-6">
       <div class="flex-grow border-t border-gray-200"></div>
       <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O CON TU CORREO</span>
       <div class="flex-grow border-t border-gray-200"></div>
     </div>
-
-    <!-- Formulario Devise Local -->
     <%= simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f| %>
       <div class="space-y-4">
         <%= f.input :email, 
@@ -49,14 +33,12 @@
                     label: "Correo Electrónico",
                     label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
                     input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
         <%= f.input :password, 
                     required: true, 
                     placeholder: "••••••••", 
                     label: "Contraseña",
                     label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
                     input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
-
         <% if devise_mapping.rememberable? %>
           <div class="flex items-center pt-1">
             <%= f.input :remember_me, 
@@ -68,13 +50,10 @@
           </div>
         <% end %>
       </div>
-
       <div class="mt-6">
-        <%= f.button :submit, "INGRESAR A DRIVVER OS", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
+        <%= f.button :submit, "INGRESAR CON CONTRASEÑA", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
       </div>
     <% end %>
-
-    <!-- Enlaces inferiores -->
     <div class="mt-6 text-center text-xs text-gray-500 space-y-2 pt-2 border-t border-gray-100">
       <p>
         ¿No tienes una cuenta? 

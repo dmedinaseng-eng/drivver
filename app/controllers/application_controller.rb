@@ -4,6 +4,8 @@ class ApplicationController < ActionController::Base
 
   before_action :use_spanish_locale
   before_action :set_whatsapp_cta
+  before_action :set_fedcm_permissions_policy
+  before_action :configure_permitted_parameters, if: :devise_controller?
 
   # Redirección tras iniciar sesión exitosamente
   def after_sign_in_path_for(resource)
@@ -29,5 +31,16 @@ class ApplicationController < ActionController::Base
 
   def whatsapp_cta_message
     t("navbar.public.whatsapp_message")
+  end
+
+  def set_fedcm_permissions_policy
+    fedcm = 'identity-credentials-get=(self "https://accounts.google.com")'
+    existing = response.headers["Permissions-Policy"]
+    response.headers["Permissions-Policy"] = [existing, fedcm].compact.join(", ")
+  end
+
+  def configure_permitted_parameters
+    devise_parameter_sanitizer.permit(:sign_up, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city ])
+    devise_parameter_sanitizer.permit(:account_update, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme ])
   end
 end

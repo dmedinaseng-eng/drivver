@@ -63,6 +63,7 @@ app/
     images/
       .keep
       blue-logo-horizontal.png
+      blue-logo-horizontal.webp
       car-silhouette-dark.webp
       email.png
       hero-bg.webm
@@ -83,6 +84,13 @@ app/
   controllers/
     concerns/
       .keep
+    os/
+      application_controller.rb
+      dashboards_controller.rb
+    users/
+      google_id_tokens_controller.rb
+      omniauth_callbacks_controller.rb
+      passkeys_controller.rb
     application_controller.rb
     landing_controller.rb
   helpers/
@@ -90,7 +98,9 @@ app/
   javascript/
     controllers/
       application.js
+      google_auth_controller.js
       index.js
+      passkey_controller.js
     application.js
   jobs/
     application_job.rb
@@ -100,7 +110,37 @@ app/
     concerns/
       .keep
     application_record.rb
+    blog_post.rb
+    blog_review.rb
+    crm_customer.rb
+    deal.rb
+    document.rb
+    entity_feature.rb
+    event_requirement.rb
+    event.rb
+    family_member.rb
+    family.rb
+    feature.rb
+    note.rb
+    offer.rb
+    organization_role.rb
+    organization.rb
+    plan.rb
+    subscription.rb
+    user.rb
+    vehicle.rb
+    webauthn_credential.rb
+  policies/
+    application_policy.rb
+    dashboard_policy.rb
   views/
+    devise/
+      registrations/
+        new.html.erb
+      sessions/
+        new.html.erb
+      shared/
+        _google_auth.html.erb
     landing/
       _closing.html.erb
       _hero.html.erb
@@ -112,6 +152,9 @@ app/
       application.html.erb
       mailer.html.erb
       mailer.text.erb
+    os/
+      dashboards/
+        show.html.erb
     pwa/
       manifest.json.erb
       service-worker.js
@@ -142,11 +185,16 @@ config/
   initializers/
     assets.rb
     content_security_policy.rb
+    country_select.rb
+    devise.rb
     filter_parameter_logging.rb
     generators.rb
     inflections.rb
     simple_form_tailwind.rb
+    webauthn.rb
   locales/
+    devise.en.yml
+    devise.es.yml
     en.yml
     es.yml
   application.rb
@@ -167,7 +215,27 @@ config/
   storage.yml
 db/
   migrate/
-    20260916222940_create_initial_schema.rb
+    20260920223843_create_users.rb
+    20260920223945_create_families.rb
+    20260920224038_create_family_members.rb
+    20260920224241_create_organizations.rb
+    20260920224242_create_organization_roles.rb
+    20260920224350_create_vehicles.rb
+    20260920225204_create_plans.rb
+    20260920225205_create_subscriptions.rb
+    20260920230053_create_documents.rb
+    20260920230054_create_notes.rb
+    20260920230121_create_features.rb
+    20260920230123_create_entity_features.rb
+    20260920230135_create_events.rb
+    20260920230136_create_event_requirements.rb
+    20260920231311_create_deals.rb
+    20260920231312_create_offers.rb
+    20260920231313_create_crm_customers.rb
+    20260920231314_create_blog_posts.rb
+    20260920231315_create_blog_reviews.rb
+    20260924152332_create_webauthn_credentials.rb
+    20260924170622_change_default_active_on_users.rb
   cable_schema.rb
   cache_schema.rb
   queue_schema.rb
@@ -189,6 +257,49 @@ public/
   robots.txt
 script/
   .keep
+spec/
+  factories/
+    blog_posts.rb
+    blog_reviews.rb
+    crm_customers.rb
+    deals.rb
+    documents.rb
+    entity_features.rb
+    event_requirements.rb
+    events.rb
+    families.rb
+    family_members.rb
+    features.rb
+    notes.rb
+    offers.rb
+    organization_roles.rb
+    organizations.rb
+    plans.rb
+    subscriptions.rb
+    users.rb
+    vehicles.rb
+    webauthn_credentials.rb
+  models/
+    blog_post_spec.rb
+    blog_review_spec.rb
+    crm_customer_spec.rb
+    deal_spec.rb
+    document_spec.rb
+    entity_feature_spec.rb
+    event_requirement_spec.rb
+    event_spec.rb
+    family_member_spec.rb
+    family_spec.rb
+    feature_spec.rb
+    note_spec.rb
+    offer_spec.rb
+    organization_role_spec.rb
+    organization_spec.rb
+    plan_spec.rb
+    subscription_spec.rb
+    user_spec.rb
+    vehicle_spec.rb
+    webauthn_credential_spec.rb
 storage/
   .keep
 test/
@@ -221,6 +332,641 @@ README.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="app/controllers/users/google_id_tokens_controller.rb">
+require "googleauth/id_tokens"
+
+module Users
+  class GoogleIdTokensController < ApplicationController
+    skip_before_action :verify_authenticity_token, only: :create
+    before_action :verify_google_request!, only: :create
+
+    def create
+      payload = Google::Auth::IDTokens.verify_oidc(
+        credential_token,
+        aud: google_client_id
+      )
+      user = User.from_google_payload(payload)
+      sign_in(user)
+
+      respond_to do |format|
+        format.json { render json: { status: "ok", redirect_url: after_sign_in_path_for(user) } }
+        format.html { redirect_to after_sign_in_path_for(user), notice: t("auth.google.success") }
+      end
+    rescue Google::Auth::IDTokens::VerificationError, ArgumentError, KeyError
+      respond_to do |format|
+        format.json { render json: { status: "error", message: t("auth.google.failure") }, status: :unauthorized }
+        format.html { redirect_to new_user_session_path, alert: t("auth.google.failure") }
+      end
+    end
+
+    private
+
+    def credential_token
+      params[:credential].presence || params.dig(:google_id_token, :credential)
+    end
+
+    def google_client_id
+      ENV.fetch("GOOGLE_CLIENT_ID")
+    end
+
+    def verify_google_request!
+      return if rails_csrf_valid?
+      return if google_double_submit_csrf?
+      raise ActionController::InvalidAuthenticityToken
+    end
+
+    def rails_csrf_valid?
+      token = request.headers["X-CSRF-Token"].presence || params[:authenticity_token]
+      token.present? && valid_authenticity_token?(session, token)
+    end
+
+    def google_double_submit_csrf?
+      token = params[:g_csrf_token].to_s
+      cookie = cookies["g_csrf_token"].to_s
+      token.present? && cookie.present? && ActiveSupport::SecurityUtils.secure_compare(token, cookie)
+    end
+  end
+end
+</file>
+
+<file path="app/controllers/users/passkeys_controller.rb">
+module Users
+    class PasskeysController < ApplicationController
+      before_action :authenticate_user!, only: [:index, :create, :callback, :destroy]
+      skip_before_action :verify_authenticity_token, only: [:authenticate_options, :authenticate]
+  
+      # Lista de Passkeys configuradas por el usuario autenticado
+      def index
+        @passkeys = current_user.webauthn_credentials
+      end
+  
+      # 1. Generar opciones para REGISTRAR una nueva Passkey (Usuario Logueado)
+      def create
+        options = WebAuthn::Credential.options_for_create(
+          user: {
+            id: current_user.id,
+            name: current_user.email,
+            display_name: current_user.full_name
+          },
+          exclude: current_user.webauthn_credentials.pluck(:external_id)
+        )
+  
+        session[:creation_challenge] = options.challenge
+  
+        render json: options
+      end
+  
+      # 2. Guardar la nueva Passkey registrada tras la respuesta del navegador
+      def callback
+        webauthn_credential = WebAuthn::Credential.from_create(params[:credential])
+  
+        begin
+          webauthn_credential.verify(session[:creation_challenge])
+  
+          credential = current_user.webauthn_credentials.build(
+            external_id: webauthn_credential.id,
+            public_key: webauthn_credential.public_key,
+            sign_count: webauthn_credential.sign_count
+          )
+  
+          if credential.save
+            render json: { status: "ok", message: "Passkey vinculada con éxito." }
+          else
+            render json: { status: "error", errors: credential.errors.full_messages }, status: :unprocessable_entity
+          end
+        rescue WebAuthn::VerificationError => e
+          render json: { status: "error", message: "Error de verificación: #{e.message}" }, status: :bad_request
+        ensure
+          session.delete(:creation_challenge)
+        end
+      end
+  
+      # 3. Generar opciones para AUTENTICAR / LOGIN con Passkey (Usuario No Logueado)
+      def authenticate_options
+        options = WebAuthn::Credential.options_for_get
+  
+        session[:authentication_challenge] = options.challenge
+  
+        render json: options
+      end
+  
+      # 4. Validar firma biométrica e iniciar sesión de usuario
+      def authenticate
+        webauthn_credential = WebAuthn::Credential.from_get(params[:credential])
+  
+        stored_credential = WebauthnCredential.find_by(external_id: webauthn_credential.id)
+  
+        unless stored_credential
+          return render json: { status: "error", message: "Dispositivo no reconocido." }, status: :not_found
+        end
+  
+        begin
+          webauthn_credential.verify(
+            session[:authentication_challenge],
+            public_key: stored_credential.public_key,
+            sign_count: stored_credential.sign_count
+          )
+  
+          stored_credential.update!(sign_count: webauthn_credential.sign_count)
+          
+          # Iniciar sesión de Devise
+          sign_in(stored_credential.user)
+  
+          render json: { status: "ok", redirect_url: os_root_path }
+        rescue WebAuthn::VerificationError => e
+          render json: { status: "error", message: "Autenticación fallida: #{e.message}" }, status: :unauthorized
+        ensure
+          session.delete(:authentication_challenge)
+        end
+      end
+  
+      # Eliminar una Passkey vinculada
+      def destroy
+        passkey = current_user.webauthn_credentials.find(params[:id])
+        passkey.destroy
+  
+        redirect_to users_passkeys_path, notice: "Passkey eliminada correctamente."
+      end
+    end
+  end
+</file>
+
+<file path="app/javascript/controllers/google_auth_controller.js">
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static targets = ["button", "fallback"]
+  static values = {
+    clientId: String,
+    loginUri: String,
+    csrfToken: String,
+    context: { type: String, default: "signin" }
+  }
+
+  connect() {
+    if (!this.hasUsableClientId) {
+      this.showFallback()
+      return
+    }
+
+    this.loadGsi()
+      .then(() => this.initGsi())
+      .catch(() => this.showFallback())
+  }
+
+  disconnect() {
+    window.google?.accounts?.id?.cancel()
+  }
+
+  get hasUsableClientId() {
+    const id = (this.clientIdValue || "").trim()
+    return id.length > 0 && !id.includes("dummy") && !id.includes("tu_google")
+  }
+
+  loadGsi() {
+    if (window.google?.accounts?.id) return Promise.resolve()
+
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector("script[data-google-gsi]")
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true })
+        existing.addEventListener("error", reject, { once: true })
+        return
+      }
+
+      const script = document.createElement("script")
+      script.src = "https://accounts.google.com/gsi/client"
+      script.async = true
+      script.defer = true
+      script.dataset.googleGsi = "true"
+      script.onload = () => resolve()
+      script.onerror = reject
+      document.head.appendChild(script)
+    })
+  }
+
+  initGsi() {
+    google.accounts.id.initialize({
+      client_id: this.clientIdValue,
+      ux_mode: "redirect",
+      login_uri: this.loginUriValue,
+      callback: (response) => this.handleCredential(response),
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      context: this.contextValue || "signin",
+      itp_support: true,
+      use_fedcm_for_button: true
+    })
+
+    if (this.hasButtonTarget) {
+      google.accounts.id.renderButton(this.buttonTarget, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: this.contextValue === "signup" ? "signup_with" : "continue_with",
+        shape: "rectangular",
+        width: Math.max(this.buttonTarget.offsetWidth || 320, 280),
+        logo_alignment: "left"
+      })
+    }
+
+    google.accounts.id.prompt()
+  }
+
+  async handleCredential(response) {
+    try {
+      const res = await fetch(this.loginUriValue, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-CSRF-Token": this.csrfTokenValue
+        },
+        body: JSON.stringify({ credential: response.credential })
+      })
+      const data = await res.json()
+
+      if (res.ok && data.redirect_url) {
+        window.location.href = data.redirect_url
+        return
+      }
+    } catch (_error) {
+      // GIS One Tap failed; the redirect button remains available.
+    }
+
+    this.showFallback()
+  }
+
+  showFallback() {
+    if (this.hasFallbackTarget) this.fallbackTarget.classList.remove("hidden")
+  }
+}
+</file>
+
+<file path="app/javascript/controllers/passkey_controller.js">
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static targets = ["button", "error"]
+
+  // Autenticarse con Passkey (Pantalla de Login)
+  async authenticate(event) {
+    event.preventDefault()
+    this.clearError()
+
+    if (!window.PublicKeyCredential) {
+      this.showError("Tu navegador o dispositivo no soporta autenticación biométrica Passkeys.")
+      return
+    }
+
+    try {
+      // 1. Obtener challenge y opciones del servidor
+      const optionsResponse = await fetch("/users/passkeys/authenticate_options", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": this.getCsrfToken()
+        }
+      })
+      const options = await optionsResponse.json()
+
+      // Convertir formatos Base64/Buffer para la API nativa del navegador
+      options.challenge = this.base64ToBuffer(options.challenge)
+      if (options.allowCredentials) {
+        options.allowCredentials.forEach(cred => {
+          cred.id = this.base64ToBuffer(cred.id)
+        })
+      }
+
+      // 2. Invocar la API biométrica del dispositivo (FaceID / TouchID / PIN)
+      const credential = await navigator.credentials.get({ publicKey: options })
+
+      // 3. Enviar la firma generada al backend para iniciar sesión
+      const authResponse = await fetch("/users/passkeys/authenticate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": this.getCsrfToken()
+        },
+        body: JSON.stringify({ credential: this.credentialToJSON(credential) })
+      })
+
+      const result = await authResponse.json()
+
+      if (authResponse.ok && result.status === "ok") {
+        window.location.href = result.redirect_url
+      } else {
+        this.showError(result.message || "Error al autenticar con la Passkey.")
+      }
+    } catch (err) {
+      if (err.name !== "NotAllowedError") {
+        this.showError("Ocurrió un error en el sensor biométrico o la operación fue cancelada.")
+      }
+    }
+  }
+
+  // Registrar una nueva Passkey (Desde el panel de configuración del usuario)
+  async register(event) {
+    event.preventDefault()
+    this.clearError()
+
+    try {
+      // 1. Obtener opciones de registro
+      const optionsResponse = await fetch("/users/passkeys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": this.getCsrfToken()
+        }
+      })
+      const options = await optionsResponse.json()
+
+      options.challenge = this.base64ToBuffer(options.challenge)
+      options.user.id = this.stringToBuffer(options.user.id)
+
+      // 2. Disparar creación de Passkey en el dispositivo
+      const credential = await navigator.credentials.create({ publicKey: options })
+
+      // 3. Guardar la clave pública en el servidor
+      const saveResponse = await fetch("/users/passkeys/callback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": this.getCsrfToken()
+        },
+        body: JSON.stringify({ credential: this.credentialToJSON(credential) })
+      })
+
+      const result = await saveResponse.json()
+
+      if (saveResponse.ok && result.status === "ok") {
+        window.location.reload()
+      } else {
+        this.showError(result.message || "No se pudo registrar la Passkey.")
+      }
+    } catch (err) {
+      if (err.name !== "NotAllowedError") {
+        this.showError("Error al registrar el dispositivo.")
+      }
+    }
+  }
+
+  // --- HELPERS DE TRANSFORMACIÓN DATA ---
+  getCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.getAttribute("content")
+  }
+
+  showError(msg) {
+    if (this.hasErrorTarget) {
+      this.errorTarget.textContent = msg
+      this.errorTarget.classList.remove("hidden")
+    } else {
+      alert(msg)
+    }
+  }
+
+  clearError() {
+    if (this.hasErrorTarget) {
+      this.errorTarget.textContent = ""
+      this.errorTarget.classList.add("hidden")
+    }
+  }
+
+  base64ToBuffer(base64) {
+    const pad = "=".repeat((4 - (base64.length % 4)) % 4)
+    const base64Url = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/")
+    const rawData = window.atob(base64Url)
+    const buffer = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) {
+      buffer[i] = rawData.charCodeAt(i)
+    }
+    return buffer.buffer
+  }
+
+  stringToBuffer(str) {
+    return new TextEncoder().encode(str)
+  }
+
+  bufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer)
+    let binary = ""
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+  }
+
+  credentialToJSON(credential) {
+    const res = {
+      id: credential.id,
+      rawId: this.bufferToBase64(credential.rawId),
+      type: credential.type,
+      response: {}
+    }
+
+    if (credential.response.attestationObject) {
+      res.response.attestationObject = this.bufferToBase64(credential.response.attestationObject)
+    }
+    if (credential.response.clientDataJSON) {
+      res.response.clientDataJSON = this.bufferToBase64(credential.response.clientDataJSON)
+    }
+    if (credential.response.authenticatorData) {
+      res.response.authenticatorData = this.bufferToBase64(credential.response.authenticatorData)
+    }
+    if (credential.response.signature) {
+      res.response.signature = this.bufferToBase64(credential.response.signature)
+    }
+    if (credential.response.userHandle) {
+      res.response.userHandle = this.bufferToBase64(credential.response.userHandle)
+    }
+
+    return res
+  }
+}
+</file>
+
+<file path="app/models/webauthn_credential.rb">
+class WebauthnCredential < ApplicationRecord
+  belongs_to :user
+end
+</file>
+
+<file path="app/views/devise/shared/_google_auth.html.erb">
+<% context = local_assigns.fetch(:context, "signin") %>
+<% fallback_label = local_assigns.fetch(:fallback_label, t("auth.google.continue")) %>
+
+<div class="mb-6"
+     data-controller="google-auth"
+     data-google-auth-client-id-value="<%= ENV.fetch('GOOGLE_CLIENT_ID', '') %>"
+     data-google-auth-login-uri-value="<%= users_google_id_token_url %>"
+     data-google-auth-csrf-token-value="<%= form_authenticity_token %>"
+     data-google-auth-context-value="<%= context %>">
+  <div data-google-auth-target="button" class="w-full min-h-[44px] flex justify-center [&>div]:w-full"></div>
+
+  <div data-google-auth-target="fallback" class="hidden mt-3">
+    <%= button_to user_google_oauth2_omniauth_authorize_path, method: :post, data: { turbo: false }, class: "w-full flex items-center justify-center gap-3 py-3 px-4 bg-white text-gray-700 font-bold rounded-xl text-xs border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm cursor-pointer" do %>
+      <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+      </svg>
+      <span><%= fallback_label %></span>
+    <% end %>
+  </div>
+</div>
+</file>
+
+<file path="config/initializers/country_select.rb">
+ISO3166.configure do |config|
+  config.locales = [ :es, :en ]
+end
+
+CountrySelect::FORMATS[:with_calling_code] = lambda do |country|
+  name = country.translations[I18n.locale.to_s] || country.iso_short_name
+  "#{country.emoji_flag} #{name} (+#{country.country_code})"
+end
+
+CountrySelect::DEFAULTS[:format] = :with_calling_code
+CountrySelect::DEFAULTS[:locale] = :es
+CountrySelect::DEFAULTS[:priority_countries] = %w[CO MX US ES AR PE CL EC]
+</file>
+
+<file path="config/initializers/webauthn.rb">
+WebAuthn.configure do |config|
+  # Nombre comercial que verá el usuario en la solicitud de Passkey
+  config.rp_name = "Drivver OS"
+
+  # En producción debe ser el dominio real sin puerto (ej. "drivver.com")
+  # En desarrollo usamos localhost
+  config.rp_id = Rails.env.production? ? "drivver.com" : "localhost"
+
+  # Debe coincidir con window.location.origin
+  config.allowed_origins = if Rails.env.production?
+    [ "https://drivver.com" ]
+  else
+    [ "http://localhost:3000" ]
+  end
+end
+</file>
+
+<file path="config/locales/devise.es.yml">
+# Additional translations at https://github.com/heartcombo/devise/wiki/I18n
+
+es:
+  devise:
+    confirmations:
+      confirmed: "Tu correo electrónico ha sido confirmado correctamente."
+      send_instructions: "Recibirás un correo con instrucciones para confirmar tu dirección de email en unos minutos."
+      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un mensaje con instrucciones para confirmarlo en unos minutos."
+    failure:
+      already_authenticated: "Ya iniciaste sesión."
+      inactive: "Tu cuenta aún no está activada."
+      invalid: "%{authentication_keys} o contraseña inválidos."
+      locked: "Tu cuenta está bloqueada."
+      last_attempt: "Te queda un intento antes de que tu cuenta sea bloqueada."
+      not_found_in_database: "%{authentication_keys} o contraseña inválidos."
+      timeout: "Tu sesión expiró. Inicia sesión de nuevo para continuar."
+      unauthenticated: "Necesitas iniciar sesión o registrarte antes de continuar."
+      unconfirmed: "Tienes que confirmar tu correo electrónico antes de continuar."
+    mailer:
+      confirmation_instructions:
+        subject: "Instrucciones de confirmación"
+      reset_password_instructions:
+        subject: "Instrucciones para restablecer la contraseña"
+      unlock_instructions:
+        subject: "Instrucciones de desbloqueo"
+      email_changed:
+        subject: "Correo electrónico actualizado"
+      password_change:
+        subject: "Contraseña actualizada"
+    omniauth_callbacks:
+      failure: "No se pudo autenticarte desde %{kind} porque \"%{reason}\"."
+      success: "Autenticación exitosa con la cuenta de %{kind}."
+    passwords:
+      no_token: "No puedes acceder a esta página si no vienes desde un correo de restablecimiento de contraseña. Si vienes de ese correo, asegúrate de usar la URL completa que te enviamos."
+      send_instructions: "Recibirás un correo con instrucciones para restablecer tu contraseña en unos minutos."
+      send_paranoid_instructions: "Si tu correo electrónico existe en nuestra base de datos, recibirás un enlace de recuperación en unos minutos."
+      updated: "Tu contraseña se cambió correctamente. Ya iniciaste sesión."
+      updated_not_active: "Tu contraseña se cambió correctamente."
+    registrations:
+      destroyed: "¡Hasta pronto! Tu cuenta se canceló correctamente. Esperamos verte de nuevo."
+      signed_up: "¡Bienvenido! Te registraste correctamente."
+      signed_up_but_inactive: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta aún no está activada."
+      signed_up_but_locked: "Te registraste correctamente. No pudimos iniciar sesión porque tu cuenta está bloqueada."
+      signed_up_but_unconfirmed: "Enviamos un mensaje con un enlace de confirmación a tu correo. Sigue el enlace para activar tu cuenta."
+      update_needs_confirmation: "Actualizaste tu cuenta correctamente, pero debemos verificar tu nuevo correo. Revisa tu bandeja y sigue el enlace de confirmación."
+      updated: "Tu cuenta se actualizó correctamente."
+      updated_but_not_signed_in: "Tu cuenta se actualizó correctamente, pero como cambiaste la contraseña debes iniciar sesión de nuevo."
+    sessions:
+      signed_in: "Iniciaste sesión correctamente."
+      signed_out: "Cerraste sesión correctamente."
+      already_signed_out: "Cerraste sesión correctamente."
+    unlocks:
+      send_instructions: "Recibirás un correo con instrucciones para desbloquear tu cuenta en unos minutos."
+      send_paranoid_instructions: "Si tu cuenta existe, recibirás un correo con instrucciones para desbloquearla en unos minutos."
+      unlocked: "Tu cuenta se desbloqueó correctamente. Inicia sesión para continuar."
+  errors:
+    messages:
+      already_confirmed: "ya fue confirmado, intenta iniciar sesión"
+      confirmation_period_expired: "debe confirmarse dentro de %{period}, solicita uno nuevo"
+      expired: "ha expirado, solicita uno nuevo"
+      not_found: "no encontrado"
+      not_locked: "no estaba bloqueado"
+      not_saved:
+        one: "1 error impidió guardar este %{resource}:"
+        other: "%{count} errores impidieron guardar este %{resource}:"
+</file>
+
+<file path="db/migrate/20260924152332_create_webauthn_credentials.rb">
+class CreateWebauthnCredentials < ActiveRecord::Migration[8.0]
+  def change
+    create_table :webauthn_credentials do |t|
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.string :external_id, null: false
+      t.text :public_key, null: false
+      t.bigint :sign_count, null: false, default: 0
+
+      t.timestamps
+    end
+
+    add_index :webauthn_credentials, :external_id, unique: true
+  end
+end
+</file>
+
+<file path="db/migrate/20260924170622_change_default_active_on_users.rb">
+class ChangeDefaultActiveOnUsers < ActiveRecord::Migration[8.0]
+  def change
+    change_column_default :users, :active, from: nil, to: false
+    reversible do |dir|
+      dir.up do
+        User.where(active: nil).update_all(active: false)
+      end
+    end
+  end
+end
+</file>
+
+<file path="spec/factories/webauthn_credentials.rb">
+FactoryBot.define do
+  factory :webauthn_credential do
+    user { nil }
+    external_id { "MyString" }
+    public_key { "MyText" }
+    sign_count { "" }
+  end
+end
+</file>
+
+<file path="spec/models/webauthn_credential_spec.rb">
+require 'rails_helper'
+
+RSpec.describe WebauthnCredential, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
 
 <file path=".github/dependabot.yml">
 version: 2
@@ -630,27 +1376,79 @@ RAILS_MASTER_KEY=$(cat config/master.key)
 
 </file>
 
-<file path="app/controllers/landing_controller.rb">
-class LandingController < ApplicationController
-  def sellers
-    set_whatsapp_cta
-  end
+<file path="app/controllers/os/application_controller.rb">
+class Os::ApplicationController < ::ApplicationController
+      before_action :authenticate_user!
+  
+      include Pundit::Authorization
+      after_action :verify_authorized
+  
+      layout "os"
+  
+      rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
 
-  def buyers
+      protected
+
+        def configure_permitted_parameters
+            devise_parameter_sanitizer.permit(:sign_up, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city])
+            devise_parameter_sanitizer.permit(:account_update, keys: [:first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme])
+        end
+  
+      private
+  
+      def user_not_authorized
+        flash[:alert] = "No tienes permisos para realizar esta acción o acceder a este módulo."
+        redirect_to(request.referrer || root_path)
+      end
+end
+</file>
+
+<file path="app/controllers/os/dashboards_controller.rb">
+class Os::DashboardsController < Os::ApplicationController
+  def show
+    authorize :dashboard, :show?
+    @user = current_user
     set_whatsapp_cta
   end
 
   private
     def set_whatsapp_cta
       @whatsapp_number = ENV.fetch("WHATSAPP_NUMBER")
-      @whatsapp_message = URI.encode_www_form_component(t("landing.#{action_name}.whatsapp_message"))
+      @whatsapp_message = URI.encode_www_form_component("Hola, soy nuevo en Drivver. Me ayudas")
       @cta_url = "https://wa.me/#{@whatsapp_number}?text=#{@whatsapp_message}"
     end
 end
 </file>
 
+<file path="app/controllers/users/omniauth_callbacks_controller.rb">
+module Users
+  class OmniauthCallbacksController < Devise::OmniauthCallbacksController
+    def google_oauth2
+      handle_auth("Google")
+    end
+
+    def failure
+      redirect_to new_user_session_path, alert: "No se pudo autenticar con Google."
+    end
+
+    private
+
+    def handle_auth(kind)
+      @user = User.from_omniauth(request.env["omniauth.auth"])
+
+      if @user.persisted?
+        flash[:notice] = "Inicio de sesión exitoso con #{kind}."
+        sign_in_and_redirect @user, event: :authentication
+      else
+        session["devise.google_data"] = request.env["omniauth.auth"].except(:extra)
+        redirect_to new_user_registration_url, alert: "Hubo un problema al autenticar o crear tu cuenta con #{kind}."
+      end
+    end
+  end
+end
+</file>
+
 <file path="app/javascript/controllers/index.js">
-// Import and register all your controllers from the importmap via controllers/**/*_controller
 import { application } from "controllers/application"
 import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
 eagerLoadControllersFrom("controllers", application)
@@ -681,6 +1479,382 @@ end
 
 <file path="app/models/concerns/.keep">
 
+</file>
+
+<file path="app/models/blog_post.rb">
+class BlogPost < ApplicationRecord
+  belongs_to :organization
+end
+</file>
+
+<file path="app/models/blog_review.rb">
+class BlogReview < ApplicationRecord
+  belongs_to :blog_post
+  belongs_to :user
+end
+</file>
+
+<file path="app/models/crm_customer.rb">
+class CrmCustomer < ApplicationRecord
+  belongs_to :organization
+end
+</file>
+
+<file path="app/models/deal.rb">
+class Deal < ApplicationRecord
+  belongs_to :vehicle
+  belongs_to :organization
+  belongs_to :client
+end
+</file>
+
+<file path="app/models/document.rb">
+class Document < ApplicationRecord
+  belongs_to :organization
+end
+</file>
+
+<file path="app/models/entity_feature.rb">
+class EntityFeature < ApplicationRecord
+  belongs_to :feature
+  belongs_to :featurable, polymorphic: true
+end
+</file>
+
+<file path="app/models/event_requirement.rb">
+class EventRequirement < ApplicationRecord
+  belongs_to :event
+end
+</file>
+
+<file path="app/models/event.rb">
+class Event < ApplicationRecord
+  belongs_to :vehicle
+  belongs_to :organization
+  belongs_to :user
+end
+</file>
+
+<file path="app/models/family_member.rb">
+class FamilyMember < ApplicationRecord
+  belongs_to :family
+  belongs_to :user
+end
+</file>
+
+<file path="app/models/family.rb">
+class Family < ApplicationRecord
+end
+</file>
+
+<file path="app/models/feature.rb">
+class Feature < ApplicationRecord
+end
+</file>
+
+<file path="app/models/note.rb">
+class Note < ApplicationRecord
+  belongs_to :user
+  belongs_to :notable, polymorphic: true
+  belongs_to :organization
+end
+</file>
+
+<file path="app/models/offer.rb">
+class Offer < ApplicationRecord
+  belongs_to :deal
+  belongs_to :organization
+end
+</file>
+
+<file path="app/models/organization_role.rb">
+class OrganizationRole < ApplicationRecord
+  belongs_to :organization
+  belongs_to :user
+end
+</file>
+
+<file path="app/models/organization.rb">
+class Organization < ApplicationRecord
+end
+</file>
+
+<file path="app/models/plan.rb">
+class Plan < ApplicationRecord
+end
+</file>
+
+<file path="app/models/subscription.rb">
+class Subscription < ApplicationRecord
+  belongs_to :subscribable, polymorphic: true
+  belongs_to :plan
+end
+</file>
+
+<file path="app/models/vehicle.rb">
+class Vehicle < ApplicationRecord
+  belongs_to :user
+  belongs_to :family
+end
+</file>
+
+<file path="app/policies/application_policy.rb">
+class ApplicationPolicy
+  attr_reader :user, :record
+
+  def initialize(user, record)
+    @user = user
+    @record = record
+  end
+
+  def index?
+    false
+  end
+
+  def show?
+    false
+  end
+
+  def create?
+    false
+  end
+
+  def new?
+    create?
+  end
+
+  def update?
+    false
+  end
+
+  def edit?
+    update?
+  end
+
+  def destroy?
+    false
+  end
+
+  # Helpers globales de rol
+  def super_admin?
+    user&.super_admin? || user&.developer?
+  end
+
+  class Scope
+    attr_reader :user, :scope
+
+    def initialize(user, scope)
+      @user = user
+      @scope = scope
+    end
+
+    def resolve
+      raise NotImplementedError, "You must define #resolve in #{self.class}"
+    end
+  end
+end
+</file>
+
+<file path="app/policies/dashboard_policy.rb">
+class DashboardPolicy < ApplicationPolicy
+    def show?
+      user.present? && user.active?
+    end
+  end
+</file>
+
+<file path="app/views/devise/registrations/new.html.erb">
+<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]">
+  <div class="w-full max-w-lg bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
+    <div class="text-center mb-8">
+      <div class="flex justify-center items-center gap-2 mb-3">
+        <%= image_tag "blue-logo-horizontal.webp", alt: "Drivver OS", class: "h-15 object-contain" %>
+      </div>
+      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Crear Cuenta Drivver</h2>
+      <p class="text-xs text-gray-500 mt-1 font-medium">Únete a la plataforma de gestión vehicular</p>
+    </div>
+
+    <%= render "devise/shared/google_auth", context: "signup", fallback_label: t("auth.google.sign_up") %>
+
+    <div class="relative flex py-2 items-center mb-6">
+      <div class="flex-grow border-t border-gray-200"></div>
+      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O REGÍSTRATE CON CORREO</span>
+      <div class="flex-grow border-t border-gray-200"></div>
+    </div>
+    
+    <%= simple_form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f| %>
+    <%= f.error_notification %>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <%= f.input :first_name,
+                      required: true,
+                      label: "Nombre",
+                      placeholder: "Carlos",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+          <%= f.input :last_name,
+                      required: true,
+                      label: "Apellido",
+                      placeholder: "Pérez",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <%= f.input :id_type,
+                      collection: [ [ "Cédula de Ciudadanía", "CC" ], [ "Cédula de Extranjería", "CE" ], [ "NIT", "NIT" ], [ "Pasaporte", "PP" ] ],
+                      label: "Tipo ID",
+                      prompt: "Seleccionar",
+                      required: true,
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
+
+          <div class="sm:col-span-2">
+            <%= f.input :id_number,
+                        required: true,
+                        label: "Número de Documento",
+                        placeholder: "1020304050",
+                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <%= f.input :phone_country_code,
+                      as: :country,
+                      priority: %w[CO MX US ES AR PE CL EC],
+                      selected: "CO",
+                      label: "País",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all cursor-pointer" } %>
+
+          <div class="sm:col-span-2">
+            <%= f.input :phone_number,
+                        required: true,
+                        label: "Teléfono Móvil",
+                        placeholder: "3001234567",
+                        label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                        input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+          </div>
+        </div>
+
+        <%= f.input :city,
+                    required: true,
+                    label: "Ciudad",
+                    placeholder: "Bogotá",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+        <%= f.input :email,
+                    required: true,
+                    label: "Correo Electrónico",
+                    placeholder: "ejemplo@drivver.com",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <%= f.input :password,
+                      required: true,
+                      label: "Contraseña",
+                      hint: "Mínimo 6 caracteres",
+                      placeholder: "••••••••",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      hint_html: { class: "text-[10px] text-gray-400 mt-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+
+          <%= f.input :password_confirmation,
+                      required: true,
+                      label: "Confirmar Contraseña",
+                      placeholder: "••••••••",
+                      label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                      input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        </div>
+      </div>
+
+      <div class="mt-8">
+        <%= f.button :submit, "CREAR MI CUENTA DRIVVER", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
+      </div>
+    <% end %>
+
+    <div class="mt-6 text-center text-xs text-gray-500 pt-4 border-t border-gray-100">
+      <p>
+        ¿Ya tienes una cuenta?
+        <%= link_to "Inicia sesión aquí", new_session_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
+      </p>
+    </div>
+  </div>
+</div>
+</file>
+
+<file path="app/views/devise/sessions/new.html.erb">
+<div class="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[#0E1925]" data-controller="passkey">
+  <div class="w-full max-w-md bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 text-gray-900">
+    <div class="text-center mb-8">
+      <div class="flex justify-center items-center gap-2 mb-3">
+        <%= image_tag 'blue-logo-horizontal.webp', alt: 'Drivver OS', class: 'h-15 object-contain' rescue nil %>
+      </div>
+      <h2 class="text-2xl font-extrabold text-[#0E1925] tracking-tight">Iniciar Sesión</h2>
+      <p class="text-xs text-gray-500 mt-1 font-medium">Ingresa a tu ecosistema vehicular</p>
+    </div>
+    <div data-passkey-target="error" class="hidden mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-semibold border border-red-100"></div>
+    <%= render "devise/shared/google_auth" %>
+    <div class="mb-4">
+      <button type="button" 
+              data-action="click->passkey#authenticate" 
+              class="w-full flex items-center justify-center gap-3 py-3 px-4 bg-sky-50 text-sky-800 border border-sky-200 font-extrabold rounded-xl text-xs hover:bg-sky-100 transition-colors shadow-sm cursor-pointer">
+        <svg class="w-5 h-5 text-sky-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 004 11c0 2.473.345 4.866.99 7.132M13 11a1 1 0 11-2 0 1 1 0 012 0z"/>
+        </svg>
+        <span>Ingresar con Passkey (FaceID / Huella)</span>
+      </button>
+    </div>
+    <div class="relative flex py-2 items-center mb-6">
+      <div class="flex-grow border-t border-gray-200"></div>
+      <span class="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">O CON TU CORREO</span>
+      <div class="flex-grow border-t border-gray-200"></div>
+    </div>
+    <%= simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f| %>
+      <div class="space-y-4">
+        <%= f.input :email, 
+                    required: true, 
+                    autofocus: true, 
+                    placeholder: "ejemplo@drivver.com", 
+                    label: "Correo Electrónico",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        <%= f.input :password, 
+                    required: true, 
+                    placeholder: "••••••••", 
+                    label: "Contraseña",
+                    label_html: { class: "block text-xs font-bold text-gray-700 mb-1" },
+                    input_html: { class: "w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:bg-white focus:border-sky-600 focus:ring-1 focus:ring-sky-600 transition-all placeholder-gray-400" } %>
+        <% if devise_mapping.rememberable? %>
+          <div class="flex items-center pt-1">
+            <%= f.input :remember_me, 
+                        as: :boolean, 
+                        label: "Recordar mi sesión",
+                        wrapper_html: { class: "flex items-center gap-2" },
+                        label_html: { class: "text-xs font-medium text-gray-600 cursor-pointer select-none" },
+                        input_html: { class: "w-4 h-4 text-sky-600 border-gray-300 rounded focus:ring-sky-500 cursor-pointer" } %>
+          </div>
+        <% end %>
+      </div>
+      <div class="mt-6">
+        <%= f.button :submit, "INGRESAR CON CONTRASEÑA", class: "w-full py-3 px-4 bg-[#1B5282] hover:bg-[#154168] text-white font-extrabold rounded-xl text-xs tracking-wider transition-colors shadow-md cursor-pointer uppercase" %>
+      </div>
+    <% end %>
+    <div class="mt-6 text-center text-xs text-gray-500 space-y-2 pt-2 border-t border-gray-100">
+      <p>
+        ¿No tienes una cuenta? 
+        <%= link_to "Regístrate aquí", new_registration_path(resource_name), class: "text-sky-600 font-bold hover:underline" %>
+      </p>
+      <p>
+        <%= link_to "¿Olvidaste tu contraseña?", new_password_path(resource_name), class: "text-gray-400 hover:text-gray-600 transition-colors" %>
+      </p>
+    </div>
+  </div>
+</div>
 </file>
 
 <file path="app/views/landing/_closing.html.erb">
@@ -863,6 +2037,17 @@ end
 <%= yield %>
 </file>
 
+<file path="app/views/os/dashboards/show.html.erb">
+<div class="max-w-7xl mx-auto py-6">
+  <h1 class="text-2xl font-extrabold text-[#0E1925] dark:text-white">
+    Bienvenido a Drivver OS, <%= current_user.first_name %>
+  </h1>
+  <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+    Tu centro de comando vehicular y de servicios está activo.
+  </p>
+</div>
+</file>
+
 <file path="app/views/pwa/manifest.json.erb">
 {
   "name": "Drivver",
@@ -946,52 +2131,6 @@ end
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap">
-</file>
-
-<file path="app/views/shared/_footer.html.erb">
-<footer class="bg-black py-8 border-t border-white/5">
-  <div class="container mx-auto px-5 text-center flex flex-col md:flex-row justify-between items-center">
-    <p class="text-gray-500 text-sm mb-4 md:mb-0">
-      <%= t("footer.copyright", year: Time.current.year) %>
-    </p>
-    <%= link_to t("footer.brokers_cta"), "#", class: "text-sky-400 hover:text-sky-300 text-sm font-semibold transition-colors duration-300" %>
-  </div>
-</footer>
-</file>
-
-<file path="app/views/shared/_navbar.html.erb">
-<nav data-controller="dropdown" class="fixed top-0 left-0 w-full h-16 sm:h-20 flex items-center justify-between px-4 sm:px-6 md:px-20 z-50 bg-[#0E1925]/80 backdrop-blur-md border-b border-gray-800/50 shadow-lg">
-  <%= link_to root_path, class: "flex items-center flex-shrink-0 group focus:outline-none overflow-hidden" do %>
-    <span class="md:hidden text-2xl font-extrabold tracking-tight text-white transition-opacity duration-200 group-hover:opacity-80">
-      <img src="<%= image_path('simbolo-blanco.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
-    </span>
-    <span class="hidden md:block text-2xl font-extrabold tracking-tight truncate text-white transition-opacity duration-200 group-hover:opacity-80">
-      <img src="<%= image_path('logo-horizontal.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
-    </span>    
-  <% end %>
- <div class="hidden md:flex items-center justify-end gap-8 flex-shrink-0">
-    <%= link_to t('navbar.public.login'), "#", 
-        class: "text-base text-gray-300 hover:text-white font-semibold transition-colors duration-200 focus:outline-none" %>    
-    <%= link_to navbar_cta, @cta_url, 
-        target: "_blank", 
-        class: "flex justify-center items-center px-5 py-2.5 bg-[#1C5686] hover:bg-blue-800 text-white text-sm font-semibold rounded-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#0E1925]" %>
-  </div>
-  <div class="md:hidden flex items-center">
-    <button data-action="click->dropdown#toggle" type="button" class="text-gray-300 hover:text-white focus:outline-none p-2" aria-label="<%= t('navbar.public.menu') %>">
-      <svg class="h-7 w-7 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path data-dropdown-target="openIcon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-        <path data-dropdown-target="closeIcon" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </button>
-  </div>
-  <div data-dropdown-target="menu" class="hidden absolute top-16 left-0 w-full bg-[#0E1925]/95 backdrop-blur-md border-b border-gray-800/50 shadow-2xl flex-col items-center py-6 gap-6 md:hidden">
-    <%= link_to t('navbar.public.login'), "#", 
-        class: "w-full text-center py-2 text-lg text-gray-300 hover:text-white font-semibold transition-colors duration-200" %>
-    <%= link_to navbar_cta, @cta_url, 
-        target: "_blank", 
-        class: "w-10/12 flex justify-center items-center px-5 py-4 bg-[#1C5686] hover:bg-blue-800 text-white text-base font-semibold rounded-none transition-colors duration-200 shadow-lg" %>
-  </div>
-</nav>
 </file>
 
 <file path="bin/brakeman">
@@ -1411,6 +2550,338 @@ Rails.application.config.assets.version = "1.0"
 # end
 </file>
 
+<file path="config/initializers/devise.rb">
+# frozen_string_literal: true
+
+# Assuming you have not yet modified this file, each configuration option below
+# is set to its default value. Note that some are commented out while others
+# are not: uncommented lines are intended to protect your configuration from
+# breaking changes in upgrades (i.e., in the event that future versions of
+# Devise change the default values for those options).
+#
+# Use this hook to configure devise mailer, warden hooks and so forth.
+# Many of these configuration options can be set straight in your model.
+Devise.setup do |config|
+  # The secret key used by Devise. Devise uses this key to generate
+  # random tokens. Changing this key will render invalid all existing
+  # confirmation, reset password and unlock tokens in the database.
+  # Devise will use the `secret_key_base` as its `secret_key`
+  # by default. You can change it below and use your own secret key.
+  # config.secret_key = 'ed5105d2a9af649354f33818ed18b8fb1530bbe65573f62aa74a5bd5ea946d9738b7ed9d6d78a7ffab6a106aae0ea5cc58a46fdf55f5383021a3bbed73320a98'
+
+  # ==> Controller configuration
+  # Configure the parent class to the devise controllers.
+  # config.parent_controller = 'DeviseController'
+
+  # ==> Mailer Configuration
+  # Configure the e-mail address which will be shown in Devise::Mailer,
+  # note that it will be overwritten if you use your own mailer class
+  # with default "from" parameter.
+  config.mailer_sender = 'please-change-me-at-config-initializers-devise@example.com'
+
+  # Configure the class responsible to send e-mails.
+  # config.mailer = 'Devise::Mailer'
+
+  # Configure the parent class responsible to send e-mails.
+  # config.parent_mailer = 'ActionMailer::Base'
+
+  # ==> ORM configuration
+  # Load and configure the ORM. Supports :active_record (default) and
+  # :mongoid (bson_ext recommended) by default. Other ORMs may be
+  # available as additional gems.
+  require 'devise/orm/active_record'
+
+  # ==> Configuration for any authentication mechanism
+  # Configure which keys are used when authenticating a user. The default is
+  # just :email. You can configure it to use [:username, :subdomain], so for
+  # authenticating a user, both parameters are required. Remember that those
+  # parameters are used only when authenticating and not when retrieving from
+  # session. If you need permissions, you should implement that in a before filter.
+  # You can also supply a hash where the value is a boolean determining whether
+  # or not authentication should be aborted when the value is not present.
+  # config.authentication_keys = [:email]
+
+  # Configure parameters from the request object used for authentication. Each entry
+  # given should be a request method and it will automatically be passed to the
+  # find_for_authentication method and considered in your model lookup. For instance,
+  # if you set :request_keys to [:subdomain], :subdomain will be used on authentication.
+  # The same considerations mentioned for authentication_keys also apply to request_keys.
+  # config.request_keys = []
+
+  # Configure which authentication keys should be case-insensitive.
+  # These keys will be downcased upon creating or modifying a user and when used
+  # to authenticate or find a user. Default is :email.
+  config.case_insensitive_keys = [:email]
+
+  # Configure which authentication keys should have whitespace stripped.
+  # These keys will have whitespace before and after removed upon creating or
+  # modifying a user and when used to authenticate or find a user. Default is :email.
+  config.strip_whitespace_keys = [:email]
+
+  # Tell if authentication through request.params is enabled. True by default.
+  # It can be set to an array that will enable params authentication only for the
+  # given strategies, for example, `config.params_authenticatable = [:database]` will
+  # enable it only for database (email + password) authentication.
+  # config.params_authenticatable = true
+
+  # Tell if authentication through HTTP Auth is enabled. False by default.
+  # It can be set to an array that will enable http authentication only for the
+  # given strategies, for example, `config.http_authenticatable = [:database]` will
+  # enable it only for database authentication.
+  # For API-only applications to support authentication "out-of-the-box", you will likely want to
+  # enable this with :database unless you are using a custom strategy.
+  # The supported strategies are:
+  # :database      = Support basic authentication with authentication key + password
+  # config.http_authenticatable = false
+
+  # If 401 status code should be returned for AJAX requests. True by default.
+  # config.http_authenticatable_on_xhr = true
+
+  # The realm used in Http Basic Authentication. 'Application' by default.
+  # config.http_authentication_realm = 'Application'
+
+  # It will change confirmation, password recovery and other workflows
+  # to behave the same regardless if the e-mail provided was right or wrong.
+  # Does not affect registerable.
+  # config.paranoid = true
+
+  # By default Devise will store the user in session. You can skip storage for
+  # particular strategies by setting this option.
+  # Notice that if you are skipping storage for all authentication paths, you
+  # may want to disable generating routes to Devise's sessions controller by
+  # passing skip: :sessions to `devise_for` in your config/routes.rb
+  config.skip_session_storage = [:http_auth]
+
+  # By default, Devise cleans up the CSRF token on authentication to
+  # avoid CSRF token fixation attacks. This means that, when using AJAX
+  # requests for sign in and sign up, you need to get a new CSRF token
+  # from the server. You can disable this option at your own risk.
+  # config.clean_up_csrf_token_on_authentication = true
+
+  # When false, Devise will not attempt to reload routes on eager load.
+  # This can reduce the time taken to boot the app but if your application
+  # requires the Devise mappings to be loaded during boot time the application
+  # won't boot properly.
+  # config.reload_routes = true
+
+  # ==> Configuration for :database_authenticatable
+  # For bcrypt, this is the cost for hashing the password and defaults to 12. If
+  # using other algorithms, it sets how many times you want the password to be hashed.
+  # The number of stretches used for generating the hashed password are stored
+  # with the hashed password. This allows you to change the stretches without
+  # invalidating existing passwords.
+  #
+  # Limiting the stretches to just one in testing will increase the performance of
+  # your test suite dramatically. However, it is STRONGLY RECOMMENDED to not use
+  # a value less than 10 in other environments. Note that, for bcrypt (the default
+  # algorithm), the cost increases exponentially with the number of stretches (e.g.
+  # a value of 20 is already extremely slow: approx. 60 seconds for 1 calculation).
+  config.stretches = Rails.env.test? ? 1 : 12
+
+  # Set up a pepper to generate the hashed password.
+  # config.pepper = '473892b4c76a344d2b6f5dddabd7ce839d33a1ad9617f5fb19e05c3e70e1903d2c78e4758bb53856ac0c9cd5445ffa2d70ce2610581fb44111bca7c43d2de5a6'
+
+  # Send a notification to the original email when the user's email is changed.
+  # config.send_email_changed_notification = false
+
+  # Send a notification email when the user's password is changed.
+  # config.send_password_change_notification = false
+
+  # ==> Configuration for :confirmable
+  # A period that the user is allowed to access the website even without
+  # confirming their account. For instance, if set to 2.days, the user will be
+  # able to access the website for two days without confirming their account,
+  # access will be blocked just in the third day.
+  # You can also set it to nil, which will allow the user to access the website
+  # without confirming their account.
+  # Default is 0.days, meaning the user cannot access the website without
+  # confirming their account.
+  # config.allow_unconfirmed_access_for = 2.days
+
+  # A period that the user is allowed to confirm their account before their
+  # token becomes invalid. For example, if set to 3.days, the user can confirm
+  # their account within 3 days after the mail was sent, but on the fourth day
+  # their account can't be confirmed with the token any more.
+  # Default is nil, meaning there is no restriction on how long a user can take
+  # before confirming their account.
+  # config.confirm_within = 3.days
+
+  # If true, requires any email changes to be confirmed (exactly the same way as
+  # initial account confirmation) to be applied. Requires additional unconfirmed_email
+  # db field (see migrations). Until confirmed, new email is stored in
+  # unconfirmed_email column, and copied to email column on successful confirmation.
+  # Also, when used in conjunction with `send_email_changed_notification`,
+  # the notification is sent to the original email when the change is requested,
+  # not when the unconfirmed email is confirmed.
+  config.reconfirmable = true
+
+  # Defines which key will be used when confirming an account
+  # config.confirmation_keys = [:email]
+
+  # ==> Configuration for :rememberable
+  # The time the user will be remembered without asking for credentials again.
+  # config.remember_for = 2.weeks
+
+  # Invalidates all the remember me tokens when the user signs out.
+  config.expire_all_remember_me_on_sign_out = true
+
+  # If true, extends the user's remember period when remembered via cookie.
+  # config.extend_remember_period = false
+
+  # Options to be passed to the created cookie. For instance, you can set
+  # secure: true in order to force SSL only cookies.
+  # config.rememberable_options = {}
+
+  # ==> Configuration for :validatable
+  # Range for password length.
+  config.password_length = 6..128
+
+  # Email regex used to validate email formats. It simply asserts that
+  # one (and only one) @ exists in the given string. This is mainly
+  # to give user feedback and not to assert the e-mail validity.
+  config.email_regexp = /\A[^@\s]+@[^@\s]+\z/
+
+  # ==> Configuration for :timeoutable
+  # The time you want to timeout the user session without activity. After this
+  # time the user will be asked for credentials again. Default is 30 minutes.
+  # config.timeout_in = 30.minutes
+
+  # ==> Configuration for :lockable
+  # Defines which strategy will be used to lock an account.
+  # :failed_attempts = Locks an account after a number of failed attempts to sign in.
+  # :none            = No lock strategy. You should handle locking by yourself.
+  # config.lock_strategy = :failed_attempts
+
+  # Defines which key will be used when locking and unlocking an account
+  # config.unlock_keys = [:email]
+
+  # Defines which strategy will be used to unlock an account.
+  # :email = Sends an unlock link to the user email
+  # :time  = Re-enables login after a certain amount of time (see :unlock_in below)
+  # :both  = Enables both strategies
+  # :none  = No unlock strategy. You should handle unlocking by yourself.
+  # config.unlock_strategy = :both
+
+  # Number of authentication tries before locking an account if lock_strategy
+  # is failed attempts.
+  # config.maximum_attempts = 20
+
+  # Time interval to unlock the account if :time is enabled as unlock_strategy.
+  # config.unlock_in = 1.hour
+
+  # Warn on the last attempt before the account is locked.
+  # config.last_attempt_warning = true
+
+  # ==> Configuration for :recoverable
+  #
+  # Defines which key will be used when recovering the password for an account
+  # config.reset_password_keys = [:email]
+
+  # Time interval you can reset your password with a reset password key.
+  # Don't put a too small interval or your users won't have the time to
+  # change their passwords.
+  config.reset_password_within = 6.hours
+
+  # When set to false, does not sign a user in automatically after their password is
+  # reset. Defaults to true, so a user is signed in automatically after a reset.
+  # config.sign_in_after_reset_password = true
+
+  # ==> Configuration for :encryptable
+  # Allow you to use another hashing or encryption algorithm besides bcrypt (default).
+  # You can use :sha1, :sha512 or algorithms from others authentication tools as
+  # :clearance_sha1, :authlogic_sha512 (then you should set stretches above to 20
+  # for default behavior) and :restful_authentication_sha1 (then you should set
+  # stretches to 10, and copy REST_AUTH_SITE_KEY to pepper).
+  #
+  # Require the `devise-encryptable` gem when using anything other than bcrypt
+  # config.encryptor = :sha512
+
+  # ==> Scopes configuration
+  # Turn scoped views on. Before rendering "sessions/new", it will first check for
+  # "users/sessions/new". It's turned off by default because it's slower if you
+  # are using only default views.
+  # config.scoped_views = false
+
+  # Configure the default scope given to Warden. By default it's the first
+  # devise role declared in your routes (usually :user).
+  # config.default_scope = :user
+
+  # Set this configuration to false if you want /users/sign_out to sign out
+  # only the current scope. By default, Devise signs out all scopes.
+  # config.sign_out_all_scopes = true
+
+  # ==> Navigation configuration
+  # Lists the formats that should be treated as navigational. Formats like
+  # :html should redirect to the sign in page when the user does not have
+  # access, but formats like :xml or :json, should return 401.
+  #
+  # If you have any extra navigational formats, like :iphone or :mobile, you
+  # should add them to the navigational formats lists.
+  #
+  # The "*/*" below is required to match Internet Explorer requests.
+  # config.navigational_formats = ['*/*', :html, :turbo_stream]
+
+  # The default HTTP method used to sign out a resource. Default is :delete.
+  config.sign_out_via = :delete
+
+  # ==> OmniAuth
+  # Add a new OmniAuth provider. Check the wiki for more information on setting
+  # up on your models and hooks.
+  # config.omniauth :github, 'APP_ID', 'APP_SECRET', scope: 'user,public_repo'
+
+  # ==> Warden configuration
+  # If you want to use other strategies, that are not supported by Devise, or
+  # change the failure app, you can configure them inside the config.warden block.
+  #
+  # config.warden do |warden_config|
+  #   warden_config.intercept_401 = false
+  #   warden_config.default_strategies(scope: :user).unshift :some_external_strategy
+  # end
+
+  # ==> Mountable engine configurations
+  # When using Devise inside an engine, let's call it `MyEngine`, and this engine
+  # is mountable, there are some extra configurations to be taken into account.
+  # The following options are available, assuming the engine is mounted as:
+  #
+  #     mount MyEngine, at: '/my_engine'
+  #
+  # The router that invoked `devise_for`, in the example above, would be:
+  # config.router_name = :my_engine
+  #
+  # When using OmniAuth, Devise cannot automatically set OmniAuth path,
+  # so you need to do it manually. For the users scope, it would be:
+  # config.omniauth_path_prefix = '/my_engine/users/auth'
+
+  # ==> Hotwire/Turbo configuration
+  # When using Devise with Hotwire/Turbo, the http status for error responses
+  # and some redirects must match the following. The default in Devise for existing
+  # apps is `200 OK` and `302 Found` respectively, but new apps are generated with
+  # these new defaults that match Hotwire/Turbo behavior.
+  # Note: These might become the new default in future versions of Devise.
+  config.responder.error_status = :unprocessable_content
+  config.responder.redirect_status = :see_other
+
+  # ==> Configuration for :registerable
+
+  # When set to false, does not sign a user in automatically after their password is
+  # changed. Defaults to true, so a user is signed in automatically after changing a password.
+  # config.sign_in_after_change_password = true
+
+  config.mailer_sender = 'no-reply@drivver.com'
+
+  # OmniAuth Google
+  config.omniauth :google_oauth2,
+                  ENV.fetch("GOOGLE_CLIENT_ID", "dummy_id"),
+                  ENV.fetch("GOOGLE_CLIENT_SECRET", "dummy_secret"),
+                  {
+                    scope: "email, profile",
+                    prompt: "select_account",
+                    image_aspect_ratio: "square",
+                    image_size: 50
+                  }
+end
+</file>
+
 <file path="config/initializers/filter_parameter_logging.rb">
 # Be sure to restart your server when you modify this file.
 
@@ -1526,12 +2997,81 @@ SimpleForm.setup do |config|
     b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
   end
 
-  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file }
+  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file, country: :select }
   config.label_text = lambda { |label, required, _| required ? "#{label} <span class='text-[#EF4444] font-bold ml-0.5'>*</span>".html_safe : label }
   config.default_wrapper = :default
   config.boolean_style = :nested
-  config.error_notification_class = "p-3.5 mb-5 text-xs font-semibold bg-[#EF4444] text-white rounded-xl shadow-none"
+  config.error_notification_tag = :div
+  config.error_notification_class = 'mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700'
 end
+</file>
+
+<file path="config/locales/devise.en.yml">
+# Additional translations at https://github.com/heartcombo/devise/wiki/I18n
+
+en:
+  devise:
+    confirmations:
+      confirmed: "Your email address has been successfully confirmed."
+      send_instructions: "You will receive an email with instructions for how to confirm your email address in a few minutes."
+      send_paranoid_instructions: "If your email address exists in our database, you will receive an email with instructions for how to confirm your email address in a few minutes."
+    failure:
+      already_authenticated: "You are already signed in."
+      inactive: "Your account is not activated yet."
+      invalid: "Invalid %{authentication_keys} or password."
+      locked: "Your account is locked."
+      last_attempt: "You have one more attempt before your account is locked."
+      not_found_in_database: "Invalid %{authentication_keys} or password."
+      timeout: "Your session expired. Please sign in again to continue."
+      unauthenticated: "You need to sign in or sign up before continuing."
+      unconfirmed: "You have to confirm your email address before continuing."
+    mailer:
+      confirmation_instructions:
+        subject: "Confirmation instructions"
+      reset_password_instructions:
+        subject: "Reset password instructions"
+      unlock_instructions:
+        subject: "Unlock instructions"
+      email_changed:
+        subject: "Email Changed"
+      password_change:
+        subject: "Password Changed"
+    omniauth_callbacks:
+      failure: "Could not authenticate you from %{kind} because \"%{reason}\"."
+      success: "Successfully authenticated from %{kind} account."
+    passwords:
+      no_token: "You can't access this page without coming from a password reset email. If you do come from a password reset email, please make sure you used the full URL provided."
+      send_instructions: "You will receive an email with instructions on how to reset your password in a few minutes."
+      send_paranoid_instructions: "If your email address exists in our database, you will receive a password recovery link at your email address in a few minutes."
+      updated: "Your password has been changed successfully. You are now signed in."
+      updated_not_active: "Your password has been changed successfully."
+    registrations:
+      destroyed: "Bye! Your account has been successfully cancelled. We hope to see you again soon."
+      signed_up: "Welcome! You have signed up successfully."
+      signed_up_but_inactive: "You have signed up successfully. However, we could not sign you in because your account is not yet activated."
+      signed_up_but_locked: "You have signed up successfully. However, we could not sign you in because your account is locked."
+      signed_up_but_unconfirmed: "A message with a confirmation link has been sent to your email address. Please follow the link to activate your account."
+      update_needs_confirmation: "You updated your account successfully, but we need to verify your new email address. Please check your email and follow the confirmation link to confirm your new email address."
+      updated: "Your account has been updated successfully."
+      updated_but_not_signed_in: "Your account has been updated successfully, but since your password was changed, you need to sign in again."
+    sessions:
+      signed_in: "Signed in successfully."
+      signed_out: "Signed out successfully."
+      already_signed_out: "Signed out successfully."
+    unlocks:
+      send_instructions: "You will receive an email with instructions for how to unlock your account in a few minutes."
+      send_paranoid_instructions: "If your account exists, you will receive an email with instructions for how to unlock it in a few minutes."
+      unlocked: "Your account has been unlocked successfully. Please sign in to continue."
+  errors:
+    messages:
+      already_confirmed: "was already confirmed, please try signing in"
+      confirmation_period_expired: "needs to be confirmed within %{period}, please request a new one"
+      expired: "has expired, please request a new one"
+      not_found: "not found"
+      not_locked: "was not locked"
+      not_saved:
+        one: "1 error prohibited this %{resource} from being saved:"
+        other: "%{count} errors prohibited this %{resource} from being saved:"
 </file>
 
 <file path="config/locales/en.yml">
@@ -1566,66 +3106,6 @@ end
 
 en:
   hello: "Hello world"
-</file>
-
-<file path="config/locales/es.yml">
-es:
-  layouts:
-    application:
-      title: "Drivver"
-  navbar:
-    public:
-      login: "Iniciar sesión"
-      logo_alt: "Drivver"
-      menu: "Menú"
-      sellers:
-        cta: "Vender mi vehículo"
-      buyers:
-        cta: "Comprar carro"
-  footer:
-    copyright: "© %{year} Drivver MobilityTech Solutions."
-    brokers_cta: "Únete a nuestra Red: Programa de Brokers Drivver (Aplica aquí)"
-  landing:
-    sellers:
-      hero_title: "TU CARRO COMPLETO"
-      hero_subtitle: "Tu precio, tu paz, siempre"
-      hero_cta: "Verificar si mi vehículo aplica"
-      problem_title: "El mercado tradicional"
-      problem_title_highlight: "expone su patrimonio."
-      problem_cta: "Evitar costo de retoma ahora"
-      problem_1: "¿Sabes cuántos millones pierdes al entregar tu carro al concesionario?"
-      problem_2: "Venderlo por tu cuenta protege tu dinero, pero exige tiempo y seguridad"
-      problem_3: "¿Cómo vas a filtrar compradores sospechosos sin arriesgar tu tranquilidad ni tu casa?"
-      solution_title: "Imaginate un escenario donde:"
-      solution_1: "NO tengas que elegir entre perder plata o perder tranquilidad"
-      solution_2: "Existiera un filtro invisible que garantice el traspaso antes de soltar las llaves"
-      solution_3: "Mientras sigues manejando tu carro todos los días"
-      solution_question: "¿cuál sería el único motivo para no usarlo?"
-      solution_cta: "Conocer el protocolo seguro"
-      closing_title: "TÚ MANTIENES EL CONTROL DE TU VEHÍCULO"
-      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
-      closing_cta: "Garantizar la venta"
-      whatsapp_message: "Hola, quiero conocer más de Drivver y cómo puedo vender mi vehículo de forma segura."
-    buyers:
-      hero_title: "TU PRÓXIMO CARRO"
-      hero_subtitle: "Correcto, al precio real, con total certeza"
-      hero_cta: "Solicitar catálogo verificado"
-      problem_title: "El mercado tradicional"
-      problem_title_highlight: "expone su patrimonio."
-      problem_cta: "Evitar sobreprecio"
-      problem_1: "¿Sabes cuanto estás pagando de más por la sobretasa de su vitrina?"
-      problem_2: "Buscar por tu cuenta te consume tiempo y te deja expuesto a estafas"
-      problem_3: "¿cómo vas a hacer para detectar embargos ocultos, siniestros disfrazados o trampas en el traspaso sin arriesgar tu capital?"
-      solution_title: "Imaginate un escenario donde:"
-      solution_1: "NO tengas que elegir entre pagar sobreprecios o comprar a ciegas"
-      solution_2: "Un filtro técnico y legal cierre el riesgo antes de soltar el dinero"
-      solution_3: "Mientras tú decides con datos, no con presión"
-      solution_question: "¿cuál sería el único motivo para no usarlo?"
-      solution_cta: "Conocer el protocolo seguro"
-      closing_title: "Tu presupuesto y la seguridad de tu familia no se negocian"
-      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
-      closing_cta: "Solicitar auditoría de compra"
-      whatsapp_message: "Hola, quiero conocer más de Drivver para comprar un vehículo."
 </file>
 
 <file path="config/boot.rb">
@@ -1965,6 +3445,366 @@ local:
 #   service: Mirror
 #   primary: local
 #   mirrors: [ amazon, google, microsoft ]
+</file>
+
+<file path="db/migrate/20260920223843_create_users.rb">
+class CreateUsers < ActiveRecord::Migration[8.1]
+  def change
+    enable_extension "pgcrypto" unless extension_enabled?("pgcrypto")
+
+    create_table :users, id: :uuid do |t|
+      t.string :first_name
+      t.string :last_name
+      t.string :id_number
+      t.string :id_type
+      t.boolean :active
+      t.string :city
+      t.string :phone_country_code
+      t.string :phone_number
+      t.string :theme
+      t.integer :global_role
+      t.string :provider
+      t.string :uid
+      t.string :email, default: "", null: false
+      t.string :encrypted_password, default: "", null: false
+      t.string :reset_password_token
+      t.datetime :reset_password_sent_at
+      t.datetime :remember_created_at
+
+      t.timestamps
+    end
+    add_index :users, :email, unique: true
+    add_index :users, :reset_password_token, unique: true
+    add_index :users, [:provider, :uid], unique: true
+    add_index :users, :phone_number, unique: true
+    add_index :users, [:id_number, :id_type], unique: true, name: "idx_users_id_number_type"
+    add_index :users, [:id_number, :phone_number, :email], name: "idx_users_search"
+  end
+end
+</file>
+
+<file path="db/migrate/20260920223945_create_families.rb">
+class CreateFamilies < ActiveRecord::Migration[8.1]
+  def change
+    create_table :families, id: :uuid do |t|
+      t.string :name
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920224038_create_family_members.rb">
+class CreateFamilyMembers < ActiveRecord::Migration[8.1]
+  def change
+    create_table :family_members, id: :uuid do |t|
+      t.references :family, null: false, foreign_key: true, type: :uuid
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.string :status
+      t.string :role
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920224241_create_organizations.rb">
+class CreateOrganizations < ActiveRecord::Migration[8.1]
+  def change
+    create_table :organizations, id: :uuid do |t|
+      t.string :name
+      t.string :tax_id
+      t.string :org_type
+      t.string :phone_number
+      t.string :phone_country_code
+      t.string :email
+
+      t.timestamps
+    end
+    add_index :organizations, :tax_id
+    add_index :organizations, :name
+    add_index :organizations, :org_type
+    add_index :organizations, :email
+    add_index :organizations, :phone_number
+  end
+end
+</file>
+
+<file path="db/migrate/20260920224242_create_organization_roles.rb">
+class CreateOrganizationRoles < ActiveRecord::Migration[8.1]
+  def change
+    create_table :organization_roles, id: :uuid do |t|
+      t.references :organization, null: false, foreign_key: true, type: :uuid
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.string :role_name
+      t.jsonb :permissions
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920224350_create_vehicles.rb">
+class CreateVehicles < ActiveRecord::Migration[8.1]
+  def change
+    create_table :vehicles, id: :uuid do |t|
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.references :family, null: false, foreign_key: true, type: :uuid
+      t.string :plate
+      t.string :color
+      t.string :chasis_id
+      t.string :motor_id
+      t.string :vehicle_type
+      t.string :brand
+      t.string :model
+      t.string :year
+
+      t.timestamps
+    end
+    add_index :vehicles, :plate, unique: true
+    add_index :vehicles, :chasis_id, unique: true
+    add_index :vehicles, :motor_id, unique: true
+    add_index :vehicles, :vehicle_type
+    add_index :vehicles, :brand
+    add_index :vehicles, :model
+  end
+end
+</file>
+
+<file path="db/migrate/20260920225204_create_plans.rb">
+class CreatePlans < ActiveRecord::Migration[8.1]
+  def change
+    create_table :plans, id: :uuid do |t|
+      t.string :name
+      t.string :target_type
+      t.decimal :price_cents
+      t.jsonb :features_config
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920225205_create_subscriptions.rb">
+class CreateSubscriptions < ActiveRecord::Migration[8.1]
+  def change
+    create_table :subscriptions, id: :uuid do |t|
+      t.references :subscribable, polymorphic: true, null: false, type: :uuid
+      t.references :plan, null: false, foreign_key: true, type: :uuid
+      t.string :status
+      t.date :expires_at
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230053_create_documents.rb">
+class CreateDocuments < ActiveRecord::Migration[8.1]
+  def change
+    create_table :documents, id: :uuid do |t|
+      t.references :organization, null: false, foreign_key: true, type: :uuid
+      t.string :title
+      t.text :file_url
+      t.boolean :is_public
+      t.boolean :read_only_image
+
+      t.timestamps
+    end
+    add_index :documents, :title
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230054_create_notes.rb">
+class CreateNotes < ActiveRecord::Migration[8.1]
+  def change
+    create_table :notes, id: :uuid do |t|
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.references :notable, polymorphic: true, null: false, type: :uuid
+      t.text :content
+      t.string :privacy_level
+      t.references :organization, null: false, foreign_key: true, type: :uuid
+
+      t.timestamps
+    end
+    add_index :notes, :privacy_level
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230121_create_features.rb">
+class CreateFeatures < ActiveRecord::Migration[8.1]
+  def change
+    create_table :features, id: :uuid do |t|
+      t.string :name
+      t.string :category
+      t.string :target_model
+      t.text :description
+
+      t.timestamps
+    end
+    add_index :features, :name
+    add_index :features, :category
+    add_index :features, :target_model
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230123_create_entity_features.rb">
+class CreateEntityFeatures < ActiveRecord::Migration[8.1]
+  def change
+    create_table :entity_features, id: :uuid do |t|
+      t.references :feature, null: false, foreign_key: true, type: :uuid
+      t.references :featurable, polymorphic: true, null: false, type: :uuid
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230135_create_events.rb">
+class CreateEvents < ActiveRecord::Migration[8.1]
+  def change
+    create_table :events, id: :uuid do |t|
+      t.references :vehicle, null: false, foreign_key: true, type: :uuid
+      t.references :organization, null: false, foreign_key: true, type: :uuid
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.string :event_type
+      t.string :status
+      t.boolean :custody_flag
+      t.decimal :price_cents
+
+      t.timestamps
+    end
+    add_index :events, :status
+    add_index :events, :event_type
+  end
+end
+</file>
+
+<file path="db/migrate/20260920230136_create_event_requirements.rb">
+class CreateEventRequirements < ActiveRecord::Migration[8.1]
+  def change
+    create_table :event_requirements, id: :uuid do |t|
+      t.references :event, null: false, foreign_key: true, type: :uuid
+      t.text :description
+      t.decimal :cost_cents
+      t.boolean :approved_by_user
+      t.datetime :approved_at
+
+      t.timestamps
+    end
+  end
+end
+</file>
+
+<file path="db/migrate/20260920231311_create_deals.rb">
+class CreateDeals < ActiveRecord::Migration[8.1]
+  def change
+    create_table :deals, id: :uuid do |t|
+      t.references :vehicle, null: false, foreign_key: { on_delete: :restrict }, type: :uuid
+      t.references :organization, foreign_key: { on_delete: :nullify }, type: :uuid
+      t.references :agent_seller, foreign_key: { to_table: :users, on_delete: :nullify }, type: :uuid
+      t.references :client, null: false, foreign_key: { to_table: :users, on_delete: :restrict }, type: :uuid
+      t.references :agent_buyer, foreign_key: { to_table: :users, on_delete: :nullify }, type: :uuid
+      t.string :deal_type, null: false
+      t.string :status, null: false
+
+      t.timestamps
+    end
+
+    add_index :deals, :status
+    add_index :deals, :deal_type
+  end
+end
+</file>
+
+<file path="db/migrate/20260920231312_create_offers.rb">
+class CreateOffers < ActiveRecord::Migration[8.1]
+  def change
+    create_table :offers, id: :uuid do |t|
+      t.references :deal, null: false, foreign_key: { on_delete: :cascade }, type: :uuid
+      t.references :offeror_user, null: false, foreign_key: { to_table: :users, on_delete: :restrict }, type: :uuid
+      t.references :organization, foreign_key: { on_delete: :nullify }, type: :uuid
+      t.decimal :amount_cents, null: false
+      t.string :status, null: false
+
+      t.timestamps
+    end
+    add_index :offers, :status
+    add_index :offers, :amount_cents
+  end
+end
+</file>
+
+<file path="db/migrate/20260920231313_create_crm_customers.rb">
+class CreateCrmCustomers < ActiveRecord::Migration[8.1]
+  def change
+    create_table :crm_customers, id: :uuid do |t|
+      t.references :organization, null: false, foreign_key: { on_delete: :cascade }, type: :uuid
+      t.string :lead_type, null: false
+      t.string :first_name, null: false
+      t.string :last_name, null: false
+      t.string :phone_number, null: false
+      t.string :phone_country_code, null: false
+      t.string :email
+      t.text :notes
+      t.references :converted_user, foreign_key: { to_table: :users, on_delete: :nullify }, type: :uuid
+
+      t.timestamps
+    end
+    add_index :crm_customers, :lead_type
+    add_index :crm_customers, :first_name
+    add_index :crm_customers, :last_name
+    add_index :crm_customers, :phone_number
+    add_index :crm_customers, :phone_country_code
+    add_index :crm_customers, :email
+  end
+end
+</file>
+
+<file path="db/migrate/20260920231314_create_blog_posts.rb">
+class CreateBlogPosts < ActiveRecord::Migration[8.1]
+  def change
+    create_table :blog_posts, id: :uuid do |t|
+      t.references :organization, null: false, foreign_key: true, type: :uuid
+      t.references :author, null: false, foreign_key: { to_table: :users }, type: :uuid
+      t.string :title
+      t.string :slug
+      t.text :content
+      t.string :meta_title
+      t.text :meta_description
+      t.jsonb :schema_json
+      t.string :status
+
+      t.timestamps
+    end
+    add_index :blog_posts, :slug, unique: true
+    add_index :blog_posts, :status
+  end
+end
+</file>
+
+<file path="db/migrate/20260920231315_create_blog_reviews.rb">
+class CreateBlogReviews < ActiveRecord::Migration[8.1]
+  def change
+    create_table :blog_reviews, id: :uuid do |t|
+      t.references :blog_post, null: false, foreign_key: true, type: :uuid
+      t.references :user, null: false, foreign_key: true, type: :uuid
+      t.integer :rating
+      t.text :comment
+
+      t.timestamps
+    end
+  end
+end
 </file>
 
 <file path="db/cable_schema.rb">
@@ -2883,6 +4723,398 @@ end
 
 </file>
 
+<file path="spec/factories/blog_posts.rb">
+FactoryBot.define do
+  factory :blog_post do
+    organization { nil }
+    author_id { "" }
+    title { "MyString" }
+    slug { "MyString" }
+    content { "MyText" }
+    meta_title { "MyString" }
+    meta_description { "MyText" }
+    schema_json { "" }
+    status { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/blog_reviews.rb">
+FactoryBot.define do
+  factory :blog_review do
+    blog_post { nil }
+    user { nil }
+    rating { 1 }
+    comment { "MyText" }
+  end
+end
+</file>
+
+<file path="spec/factories/crm_customers.rb">
+FactoryBot.define do
+  factory :crm_customer do
+    organization { nil }
+    lead_type { "MyString" }
+    first_name { "MyString" }
+    last_name { "MyString" }
+    phone_number { "MyString" }
+    phone_country_code { "MyString" }
+    email { "MyString" }
+    notes { "MyText" }
+    converted_user_id { "" }
+  end
+end
+</file>
+
+<file path="spec/factories/deals.rb">
+FactoryBot.define do
+  factory :deal do
+    vehicle { nil }
+    organization { nil }
+    agent_seller_id { "" }
+    client { nil }
+    agent_buyer_id { "" }
+    deal_type { "MyString" }
+    status { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/documents.rb">
+FactoryBot.define do
+  factory :document do
+    organization { nil }
+    title { "MyString" }
+    file_url { "MyText" }
+    is_public { false }
+    read_only_image { false }
+  end
+end
+</file>
+
+<file path="spec/factories/entity_features.rb">
+FactoryBot.define do
+  factory :entity_feature do
+    feature { nil }
+    featurable { nil }
+  end
+end
+</file>
+
+<file path="spec/factories/event_requirements.rb">
+FactoryBot.define do
+  factory :event_requirement do
+    event { nil }
+    description { "MyText" }
+    cost_cents { "9.99" }
+    approved_by_user { false }
+    approved_at { "2026-09-20 18:01:36" }
+  end
+end
+</file>
+
+<file path="spec/factories/events.rb">
+FactoryBot.define do
+  factory :event do
+    vehicle { nil }
+    organization { nil }
+    user { nil }
+    event_type { "MyString" }
+    status { "MyString" }
+    custody_flag { false }
+    price_cents { "9.99" }
+  end
+end
+</file>
+
+<file path="spec/factories/families.rb">
+FactoryBot.define do
+  factory :family do
+    name { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/family_members.rb">
+FactoryBot.define do
+  factory :family_member do
+    family { nil }
+    user { nil }
+    status { "MyString" }
+    role { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/features.rb">
+FactoryBot.define do
+  factory :feature do
+    name { "MyString" }
+    category { "MyString" }
+    target_model { "MyString" }
+    description { "MyText" }
+  end
+end
+</file>
+
+<file path="spec/factories/notes.rb">
+FactoryBot.define do
+  factory :note do
+    user { nil }
+    notable { nil }
+    content { "MyText" }
+    privacy_level { "MyString" }
+    organization { nil }
+  end
+end
+</file>
+
+<file path="spec/factories/offers.rb">
+FactoryBot.define do
+  factory :offer do
+    deal { nil }
+    offeror_user_id { "" }
+    organization { nil }
+    amount_cents { "9.99" }
+    status { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/organization_roles.rb">
+FactoryBot.define do
+  factory :organization_role do
+    organization { nil }
+    user { nil }
+    role_name { "MyString" }
+    permissions { "" }
+  end
+end
+</file>
+
+<file path="spec/factories/organizations.rb">
+FactoryBot.define do
+  factory :organization do
+    name { "MyString" }
+    tax_id { "MyString" }
+    org_type { "MyString" }
+    phone_number { "MyString" }
+    phone_country_code { "MyString" }
+    email { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/plans.rb">
+FactoryBot.define do
+  factory :plan do
+    name { "MyString" }
+    target_type { "MyString" }
+    price_cents { "9.99" }
+    features_config { "" }
+  end
+end
+</file>
+
+<file path="spec/factories/subscriptions.rb">
+FactoryBot.define do
+  factory :subscription do
+    subscribable { nil }
+    plan { nil }
+    status { "MyString" }
+    expires_at { "2026-09-20" }
+  end
+end
+</file>
+
+<file path="spec/factories/users.rb">
+FactoryBot.define do
+  factory :user do
+    first_name { "MyString" }
+    last_name { "MyString" }
+    id_number { "MyString" }
+    id_type { "MyString" }
+    active { false }
+    city { "MyString" }
+    phone_country_code { "MyString" }
+    phone_number { "MyString" }
+    theme { "MyString" }
+    global_role { 1 }
+    provider { "MyString" }
+    uid { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/factories/vehicles.rb">
+FactoryBot.define do
+  factory :vehicle do
+    user { nil }
+    family { nil }
+    plate { "MyString" }
+    color { "MyString" }
+    chasis_id { "MyString" }
+    motor_id { "MyString" }
+    vehicle_type { "MyString" }
+    brand { "MyString" }
+    model { "MyString" }
+    year { "MyString" }
+  end
+end
+</file>
+
+<file path="spec/models/blog_post_spec.rb">
+require 'rails_helper'
+
+RSpec.describe BlogPost, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/blog_review_spec.rb">
+require 'rails_helper'
+
+RSpec.describe BlogReview, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/crm_customer_spec.rb">
+require 'rails_helper'
+
+RSpec.describe CrmCustomer, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/deal_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Deal, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/document_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Document, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/entity_feature_spec.rb">
+require 'rails_helper'
+
+RSpec.describe EntityFeature, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/event_requirement_spec.rb">
+require 'rails_helper'
+
+RSpec.describe EventRequirement, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/event_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Event, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/family_member_spec.rb">
+require 'rails_helper'
+
+RSpec.describe FamilyMember, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/family_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Family, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/feature_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Feature, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/note_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Note, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/offer_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Offer, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/organization_role_spec.rb">
+require 'rails_helper'
+
+RSpec.describe OrganizationRole, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/organization_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Organization, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/plan_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Plan, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/subscription_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Subscription, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/user_spec.rb">
+require 'rails_helper'
+
+RSpec.describe User, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
+<file path="spec/models/vehicle_spec.rb">
+require 'rails_helper'
+
+RSpec.describe Vehicle, type: :model do
+  pending "add some examples to (or delete) #{__FILE__}"
+end
+</file>
+
 <file path="storage/.keep">
 
 </file>
@@ -3327,45 +5559,120 @@ jobs:
   }
 </file>
 
-<file path="app/controllers/application_controller.rb">
-class ApplicationController < ActionController::Base
-  # Only allow modern browsers supporting webp images, web push, badges, import maps, CSS nesting, and CSS :has.
-  allow_browser versions: :modern
-
-  # Changes to the importmap will invalidate the etag for HTML responses
-  stale_when_importmap_changes
-
-  before_action :use_spanish_locale
-
-  private
-    def use_spanish_locale
-      I18n.locale = :es
-    end
-end
-</file>
-
-<file path="app/helpers/application_helper.rb">
-module ApplicationHelper
-  def landing_t(key, **options)
-    t("landing.#{controller.action_name}.#{key}", **options)
+<file path="app/controllers/landing_controller.rb">
+class LandingController < ApplicationController
+  def sellers
   end
 
-  def navbar_cta
-    t("navbar.public.#{controller.action_name}.cta")
+  def buyers
+  end
+
+  private
+
+  def whatsapp_cta_message
+    t("landing.#{action_name}.whatsapp_message")
   end
 end
 </file>
 
 <file path="app/javascript/controllers/application.js">
-// app/javascript/application.js
-import "@hotwired/turbo-rails"
-import "controllers"
+import { Application } from "@hotwired/stimulus"
+
+const application = Application.start()
+
+application.debug = false
+window.Stimulus = application
+
+export { application }
 </file>
 
 <file path="app/models/application_record.rb">
 class ApplicationRecord < ActiveRecord::Base
   primary_abstract_class
   self.implicit_order_column = "created_at"
+end
+</file>
+
+<file path="app/models/user.rb">
+class User < ApplicationRecord
+  # Configuración de Devise + OmniAuth
+  devise :database_authenticatable, :registerable,
+         :recoverable, :rememberable, :validatable,
+         :omniauthable, omniauth_providers: [:google_oauth2]
+
+  # Enum de roles globales
+  enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
+
+  # Relación para Passkeys (WebAuthn / FIDO2)
+  has_many :webauthn_credentials, dependent: :destroy
+
+  # Relaciones del ecosistema Drivver
+  has_many :organization_roles, dependent: :destroy
+  has_many :organizations, through: :organization_roles
+  has_many :vehicles, dependent: :restrict_with_error
+  has_many :family_members, dependent: :destroy
+  has_many :families, through: :family_members
+  has_many :events, dependent: :restrict_with_error
+  has_many :notes, dependent: :destroy
+  has_many :blog_reviews, dependent: :destroy
+
+  # Validaciones
+  validates :email, presence: true, uniqueness: { case_sensitive: false }
+
+  # Métodos de presentación
+  def full_name
+    "#{first_name} #{last_name}".strip
+  end
+
+  # Crear o encontrar usuario desde Google OAuth / One Tap
+  def self.from_omniauth(auth)
+    user = find_by(provider: auth.provider, uid: auth.uid) || find_by(email: auth.info.email)
+
+    if user
+      user.update(provider: auth.provider, uid: auth.uid) if user.uid != auth.uid.to_s
+      return user
+    end
+
+    create! do |record|
+      record.provider = auth.provider
+      record.uid = auth.uid
+      record.email = auth.info.email
+      record.password = Devise.friendly_token[0, 20]
+
+      if auth.info.first_name.present? || auth.info.last_name.present?
+        record.first_name = auth.info.first_name.presence || "Usuario"
+        record.last_name = auth.info.last_name.presence || "Drivver"
+      else
+        name_parts = (auth.info.name || "Usuario Drivver").split(" ")
+        record.first_name = name_parts.first
+        record.last_name = name_parts.drop(1).join(" ").presence || "Drivver"
+      end
+
+      record.id_type ||= "CC"
+      record.id_number ||= "PENDING_#{SecureRandom.hex(4)}"
+      record.phone_country_code ||= "CO"
+      record.phone_number ||= "PENDING_#{SecureRandom.hex(4)}"
+      record.city ||= "Bogotá"
+      record.active = true
+    end
+  end
+
+  def self.from_google_payload(payload)
+    raise ArgumentError, "email missing" if payload["email"].blank?
+    raise ArgumentError, "email not verified" if payload["email_verified"] == false
+
+    auth = OmniAuth::AuthHash.new(
+      provider: "google_oauth2",
+      uid: payload["sub"],
+      info: {
+        email: payload["email"],
+        name: payload["name"],
+        first_name: payload["given_name"],
+        last_name: payload["family_name"]
+      }
+    )
+    from_omniauth(auth)
+  end
 end
 </file>
 
@@ -3395,6 +5702,52 @@ end
 </html>
 </file>
 
+<file path="app/views/shared/_footer.html.erb">
+<footer class="bg-black py-8 border-t border-white/5">
+  <div class="container mx-auto px-5 text-center flex flex-col md:flex-row justify-between items-center">
+    <p class="text-gray-500 text-sm mb-4 md:mb-0">
+      <%= t("footer.copyright", year: Time.current.year) %>
+    </p>
+    <!-- <%= link_to t("footer.brokers_cta"), "#", class: "text-sky-400 hover:text-sky-300 text-sm font-semibold transition-colors duration-300" %> -->
+  </div>
+</footer>
+</file>
+
+<file path="app/views/shared/_navbar.html.erb">
+<nav data-controller="dropdown" class="fixed top-0 left-0 w-full h-16 sm:h-20 flex items-center justify-between px-4 sm:px-6 md:px-20 z-50 bg-[#0E1925]/80 backdrop-blur-md border-b border-gray-800/50 shadow-lg">
+  <%= link_to root_path, class: "flex items-center flex-shrink-0 group focus:outline-none overflow-hidden" do %>
+    <span class="md:hidden text-2xl font-extrabold tracking-tight text-white transition-opacity duration-200 group-hover:opacity-80">
+      <img src="<%= image_path('simbolo-blanco.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
+    </span>
+    <span class="hidden md:block text-2xl font-extrabold tracking-tight truncate text-white transition-opacity duration-200 group-hover:opacity-80">
+      <img src="<%= image_path('logo-horizontal.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
+    </span>    
+  <% end %>
+ <div class="hidden md:flex items-center justify-end gap-8 flex-shrink-0">
+    <%= link_to t('navbar.public.login'), new_user_session_path, 
+        class: "text-base text-gray-300 hover:text-white font-semibold transition-colors duration-200 focus:outline-none" %>    
+    <%= link_to navbar_cta, @cta_url, 
+        target: "_blank", 
+        class: "flex justify-center items-center px-5 py-2.5 bg-[#1C5686] hover:bg-blue-800 text-white text-sm font-semibold rounded-none transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#0E1925]" %>
+  </div>
+  <div class="md:hidden flex items-center">
+    <button data-action="click->dropdown#toggle" type="button" class="text-gray-300 hover:text-white focus:outline-none p-2" aria-label="<%= t('navbar.public.menu') %>">
+      <svg class="h-7 w-7 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path data-dropdown-target="openIcon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        <path data-dropdown-target="closeIcon" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+  <div data-dropdown-target="menu" class="hidden absolute top-16 left-0 w-full bg-[#0E1925]/95 backdrop-blur-md border-b border-gray-800/50 shadow-2xl flex-col items-center py-6 gap-6 md:hidden">
+    <%= link_to t('navbar.public.login'), "#", 
+        class: "w-full text-center py-2 text-lg text-gray-300 hover:text-white font-semibold transition-colors duration-200" %>
+    <%= link_to navbar_cta, @cta_url, 
+        target: "_blank", 
+        class: "w-10/12 flex justify-center items-center px-5 py-4 bg-[#1C5686] hover:bg-blue-800 text-white text-base font-semibold rounded-none transition-colors duration-200 shadow-lg" %>
+  </div>
+</nav>
+</file>
+
 <file path="bin/dev">
 #!/usr/bin/env sh
 
@@ -3419,6 +5772,118 @@ Rails.application.config.generators do |g|
     g.orm :active_record, primary_key_type: :uuid
     g.test_framework :rspec, fixture: false
   end
+</file>
+
+<file path="config/locales/es.yml">
+es:
+  simple_form:
+    error_notification:
+      default_message: "Por favor revisa los errores señalados a continuación:"
+  errors:
+    messages:
+      not_saved:
+        one: "1 error impidió guardar este %{resource}:"
+        other: "%{count} errores impidieron guardar este %{resource}:"
+      blank: "no puede estar en blanco"
+      taken: "ya ha sido registrado"
+      invalid: "no es válido"
+      too_short: "es demasiado corto (mínimo %{count} caracteres)"
+      confirmation: "no coincide con la contraseña"
+  activerecord:
+    errors:
+      messages:
+        record_invalid: 'La validación falló: %{errors}'
+        restrict_dependent_destroy:
+          has_one: "No se puede eliminar el registro porque existe un %{record} dependiente"
+          has_many: "No se puede eliminar el registro porque existen %{record} dependientes"
+      models:
+        user:
+          attributes:
+            email:
+              blank: "El correo electrónico no puede estar en blanco"
+              taken: "Este correo electrónico ya está registrado"
+            password:
+              blank: "La contraseña no puede estar en blanco"
+            first_name:
+              blank: "El nombre no puede estar en blanco"
+            last_name:
+              blank: "El apellido no puede estar en blanco"
+            id_number:
+              blank: "El número de documento no puede estar en blanco"
+            phone_number:
+              blank: "El número de teléfono no puede estar en blanco"
+  devise:
+    failure:
+      already_authenticated: "Ya has iniciado sesión."
+      unauthenticated: "Necesitas iniciar sesión o registrarte para continuar."
+      invalid: "%{authentication_keys} o contraseña no válidos."
+    registrations:
+      signed_up: "¡Bienvenido! Te has registrado correctamente."
+      updated: "Tu cuenta ha sido actualizada."
+  auth:
+    google:
+      continue: "Continuar con Google"
+      sign_up: "Registrarme con Google"
+      success: "Inicio de sesión exitoso con Google."
+      failure: "No se pudo autenticar con Google."
+  layouts:
+    application:
+      title: "Drivver"
+  navbar:
+    public:
+      login: "Iniciar sesión"
+      logo_alt: "Drivver"
+      menu: "Menú"
+      cta: "Contáctanos"
+      whatsapp_message: "Hola, quiero contactar a Drivver."
+      sellers:
+        cta: "Vender mi vehículo"
+      buyers:
+        cta: "Comprar carro"
+  footer:
+    copyright: "© %{year} Drivver MobilityTech Solutions."
+    brokers_cta: "Únete a nuestra Red: Programa de Brokers Drivver (Aplica aquí)"
+  landing:
+    sellers:
+      hero_title: "TU CARRO COMPLETO"
+      hero_subtitle: "Tu precio, tu paz, siempre"
+      hero_cta: "Verificar si mi vehículo aplica"
+      problem_title: "El mercado tradicional"
+      problem_title_highlight: "expone su patrimonio."
+      problem_cta: "Evitar costo de retoma ahora"
+      problem_1: "¿Sabes cuántos millones pierdes al entregar tu carro al concesionario?"
+      problem_2: "Venderlo por tu cuenta protege tu dinero, pero exige tiempo y seguridad"
+      problem_3: "¿Cómo vas a filtrar compradores sospechosos sin arriesgar tu tranquilidad ni tu casa?"
+      solution_title: "Imaginate un escenario donde:"
+      solution_1: "NO tengas que elegir entre perder plata o perder tranquilidad"
+      solution_2: "Existiera un filtro invisible que garantice el traspaso antes de soltar las llaves"
+      solution_3: "Mientras sigues manejando tu carro todos los días"
+      solution_question: "¿cuál sería el único motivo para no usarlo?"
+      solution_cta: "Conocer el protocolo seguro"
+      closing_title: "TÚ MANTIENES EL CONTROL DE TU VEHÍCULO"
+      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
+      closing_cta: "Garantizar la venta"
+      whatsapp_message: "Hola, quiero conocer más de Drivver y cómo puedo vender mi vehículo de forma segura."
+    buyers:
+      hero_title: "TU PRÓXIMO CARRO"
+      hero_subtitle: "Correcto, al precio real, con total certeza"
+      hero_cta: "Solicitar catálogo verificado"
+      problem_title: "El mercado tradicional"
+      problem_title_highlight: "expone su patrimonio."
+      problem_cta: "Evitar sobreprecio"
+      problem_1: "¿Sabes cuanto estás pagando de más por la sobretasa de su vitrina?"
+      problem_2: "Buscar por tu cuenta te consume tiempo y te deja expuesto a estafas"
+      problem_3: "¿cómo vas a hacer para detectar embargos ocultos, siniestros disfrazados o trampas en el traspaso sin arriesgar tu capital?"
+      solution_title: "Imaginate un escenario donde:"
+      solution_1: "NO tengas que elegir entre pagar sobreprecios o comprar a ciegas"
+      solution_2: "Un filtro técnico y legal cierre el riesgo antes de soltar el dinero"
+      solution_3: "Mientras tú decides con datos, no con presión"
+      solution_question: "¿cuál sería el único motivo para no usarlo?"
+      solution_cta: "Conocer el protocolo seguro"
+      closing_title: "Tu presupuesto y la seguridad de tu familia no se negocian"
+      closing_subtitle: "¿Qué es lo más importante que necesitas asegurar hoy?"
+      closing_cta: "Solicitar auditoría de compra"
+      whatsapp_message: "Hola, quiero conocer más de Drivver para comprar un vehículo."
 </file>
 
 <file path="config/application.rb">
@@ -3477,600 +5942,6 @@ production:
   password: <%= ENV["DRIVVER_DATABASE_PASSWORD"] %>
 </file>
 
-<file path="db/migrate/20260916222940_create_initial_schema.rb">
-# db/migrate/20260916000000_create_initial_schema.rb
-class CreateInitialSchema < ActiveRecord::Migration[7.1]
-  def change
-    # ==========================================
-    # 1. USERS & FAMILIES
-    # ==========================================
-    create_table :users do |t|
-      # Datos Personales Drivver
-      t.string :first_name, null: false
-      t.string :last_name, null: false
-      t.string :id_number, null: false
-      t.string :id_type, null: false
-      t.boolean :active, null: false, default: false
-      t.string :city, null: false
-      t.string :phone_country_code, null: false
-      t.string :phone_number, null: false
-      t.string :theme, null: false, default: 'light'
-
-      # Pundit / Global Auth Enum (0: standard, 1: super_admin, 2: developer, 3: c_level)
-      t.integer :global_role, null: false, default: 0
-
-      # Devise Core
-      t.string :email,              null: false, default: ""
-      t.string :encrypted_password, null: false, default: ""
-
-      # Devise Recoverable
-      t.string   :reset_password_token
-      t.datetime :reset_password_sent_at
-
-      # Devise Rememberable
-      t.datetime :remember_created_at
-
-      # OmniAuth (Google & Apple Sign-In)
-      t.string :provider
-      t.string :uid
-
-      t.timestamps
-    end
-
-    add_index :users, :email, unique: true
-    add_index :users, :reset_password_token, unique: true
-    add_index :users, [ :provider, :uid ], unique: true
-    add_index :users, :phone_number, unique: true
-    add_index :users, [ :id_number, :id_type ], unique: true, name: 'idx_users_id_number_type'
-    add_index :users, [ :id_number, :phone_number, :email ], name: 'idx_users_search'
-
-    create_table :families do |t|
-      t.string :name, null: false
-      t.timestamps
-    end
-
-    create_table :family_members do |t|
-      t.references :family, null: false, foreign_key: { on_delete: :cascade }
-      t.references :user, null: false, foreign_key: { on_delete: :cascade }
-      t.string :status, null: false, default: 'Pending'
-      t.string :role
-      t.timestamps
-    end
-
-    # ==========================================
-    # 2. PLANS & SUBSCRIPTIONS
-    # ==========================================
-    create_table :plans do |t|
-      t.string :name, null: false
-      t.string :target_type, null: false
-      t.decimal :price_cents, null: false
-      t.jsonb :features_config
-      t.timestamps
-    end
-
-    create_table :subscriptions do |t|
-      t.references :subscribable, polymorphic: true, null: false
-      t.references :plan, null: false, foreign_key: true
-      t.string :status, null: false
-      t.date :expires_at
-      t.timestamps
-    end
-
-    # ==========================================
-    # 3. ORGANIZATIONS & CRM
-    # ==========================================
-    create_table :organizations do |t|
-      t.string :name, null: false
-      t.string :tax_id, null: false # (NIT/RUT)
-      t.string :org_type, null: false
-      t.string :phone_number, null: false
-      t.string :phone_country_code, null: false
-      t.string :email
-      t.timestamps
-    end
-
-    create_table :organization_roles do |t|
-      t.references :organization, null: false, foreign_key: { on_delete: :cascade }
-      t.references :user, null: false, foreign_key: { on_delete: :cascade }
-      t.string :role_name, null: false
-      t.jsonb :permissions, null: false
-      t.timestamps
-    end
-
-    create_table :crm_customers do |t|
-      t.references :organization, null: false, foreign_key: { on_delete: :cascade }
-      t.string :lead_type, null: false
-      t.string :first_name, null: false
-      t.string :last_name, null: false
-      t.string :phone_number, null: false
-      t.string :phone_country_code, null: false
-      t.string :email
-      t.text :notes
-      t.references :converted_user, foreign_key: { to_table: :users, on_delete: :nullify }
-      t.timestamps
-    end
-
-    # ==========================================
-    # 4. VEHICLES & OPERATIONS
-    # ==========================================
-    create_table :vehicles do |t|
-      t.references :user, null: false, foreign_key: { on_delete: :restrict }
-      t.references :family, foreign_key: { on_delete: :nullify }
-      t.string :plate, null: false
-      t.string :color, null: false
-      t.string :chasis_id, null: false
-      t.string :motor_id, null: false
-      t.string :vehicle_type, null: false
-      t.string :brand, null: false
-      t.string :model, null: false
-      t.string :year, null: false
-      t.timestamps
-    end
-
-    create_table :deals do |t|
-      t.references :vehicle, null: false, foreign_key: { on_delete: :restrict }
-      t.references :organization, foreign_key: { on_delete: :nullify }
-      t.references :agent_seller, foreign_key: { to_table: :users, on_delete: :nullify }
-      t.references :client, null: false, foreign_key: { to_table: :users, on_delete: :restrict }
-      t.references :agent_buyer, foreign_key: { to_table: :users, on_delete: :nullify }
-      t.string :deal_type, null: false
-      t.string :status, null: false
-      t.timestamps
-    end
-
-    create_table :offers do |t|
-      t.references :deal, null: false, foreign_key: { on_delete: :cascade }
-      t.references :offeror_user, null: false, foreign_key: { to_table: :users, on_delete: :restrict }
-      t.references :organization, foreign_key: { on_delete: :nullify }
-      t.decimal :amount_cents, null: false
-      t.string :status, null: false
-      t.timestamps
-    end
-
-    create_table :events do |t|
-      t.references :vehicle, null: false, foreign_key: { on_delete: :cascade }
-      t.references :organization, foreign_key: { on_delete: :nullify }
-      t.references :user, null: false, foreign_key: { on_delete: :restrict }
-      t.string :event_type, null: false
-      t.string :status, null: false
-      t.boolean :custody_flag, null: false, default: false
-      t.decimal :price_cents, null: false
-      t.timestamps
-    end
-
-    create_table :event_requirements do |t|
-      t.references :event, null: false, foreign_key: { on_delete: :cascade }
-      t.text :description, null: false
-      t.decimal :cost_cents
-      t.boolean :approved_by_user, null: false, default: false
-      t.datetime :approved_at
-      t.timestamps
-    end
-
-    # ==========================================
-    # 5. FEATURES, NOTES & CMS
-    # ==========================================
-    create_table :features do |t|
-      t.string :name, null: false
-      t.string :category
-      t.string :target_model, null: false
-      t.text :description
-      t.timestamps
-    end
-
-    create_table :entity_features do |t|
-      t.references :feature, null: false, foreign_key: { on_delete: :cascade }
-      t.references :featurable, polymorphic: true, null: false
-      t.timestamps
-    end
-
-    create_table :notes do |t|
-      t.references :user, null: false, foreign_key: { on_delete: :cascade }
-      t.references :notable, polymorphic: true, null: false
-      t.text :content, null: false
-      t.string :privacy_level, null: false, default: 'private'
-      t.references :organization, foreign_key: { on_delete: :nullify }
-      t.timestamps
-    end
-
-    create_table :documents do |t|
-      t.references :organization, null: false, foreign_key: { on_delete: :cascade }
-      t.string :title, null: false
-      t.text :file_url, null: false
-      t.boolean :is_public, null: false, default: false
-      t.boolean :read_only_image, null: false, default: false
-      t.timestamps
-    end
-
-    create_table :blog_posts do |t|
-      t.references :organization, null: false, foreign_key: { on_delete: :cascade }
-      t.references :author, null: false, foreign_key: { to_table: :users, on_delete: :restrict }
-      t.string :title, null: false
-      t.string :slug, null: false
-      t.text :content, null: false
-      t.string :meta_title
-      t.text :meta_description
-      t.jsonb :schema_json
-      t.string :status, null: false, default: 'draft'
-      t.timestamps
-    end
-
-    add_index :blog_posts, :slug, unique: true
-
-    create_table :blog_reviews do |t|
-      t.references :blog_post, null: false, foreign_key: { on_delete: :cascade }
-      t.references :user, null: false, foreign_key: { on_delete: :cascade }
-      t.integer :rating, null: false
-      t.text :comment
-      t.timestamps
-    end
-
-    # ==========================================
-    # ÍNDICES DE BÚSQUEDA Y RENDIMIENTO
-    # ==========================================
-
-    # Families
-    add_index :families, :name
-
-    # Organizations (Búsquedas muy frecuentes en el SaaS)
-    add_index :organizations, :tax_id
-    add_index :organizations, :name
-    add_index :organizations, :org_type
-
-    # Vehicles (Búsquedas exactas por placa o identificadores son críticas)
-    add_index :vehicles, :plate
-    add_index :vehicles, :chasis_id
-    add_index :vehicles, :motor_id
-    add_index :vehicles, [ :brand, :model ] # Índice compuesto para filtros por marca y modelo
-    add_index :vehicles, :vehicle_type
-
-    # Deals (Filtros en el tablero/CRM del dealership)
-    add_index :deals, :status
-    add_index :deals, :deal_type
-
-    # Events (Filtros en los talleres)
-    add_index :events, :status
-    add_index :events, :event_type
-
-    # Features (Para cargar rápido las características disponibles por modelo)
-    add_index :features, :name
-    add_index :features, :target_model
-    add_index :features, :category
-
-    # Notes
-    add_index :notes, :privacy_level
-
-    # Documents
-    add_index :documents, :is_public
-
-    # Blog Posts (Para SEO y listados públicos)
-    # Nota: :slug ya tiene índice único en tu migración anterior
-    add_index :blog_posts, :status
-
-    # Blog Reviews
-    add_index :blog_reviews, :rating
-  end
-end
-</file>
-
-<file path="db/schema.rb">
-# This file is auto-generated from the current state of the database. Instead
-# of editing this file, please use the migrations feature of Active Record to
-# incrementally modify your database, and then regenerate this schema definition.
-#
-# This file is the source Rails uses to define your schema when running `bin/rails
-# db:schema:load`. When creating a new database, `bin/rails db:schema:load` tends to
-# be faster and is potentially less error prone than running all of your
-# migrations from scratch. Old migrations may fail to apply correctly if those
-# migrations use external dependencies or application code.
-#
-# It's strongly recommended that you check this file into your version control system.
-
-ActiveRecord::Schema[8.1].define(version: 2026_09_16_222940) do
-  # These are extensions that must be enabled in order to support this database
-  enable_extension "pg_catalog.plpgsql"
-
-  create_table "blog_posts", force: :cascade do |t|
-    t.bigint "author_id", null: false
-    t.text "content", null: false
-    t.datetime "created_at", null: false
-    t.text "meta_description"
-    t.string "meta_title"
-    t.bigint "organization_id", null: false
-    t.jsonb "schema_json"
-    t.string "slug", null: false
-    t.string "status", default: "draft", null: false
-    t.string "title", null: false
-    t.datetime "updated_at", null: false
-    t.index ["author_id"], name: "index_blog_posts_on_author_id"
-    t.index ["organization_id"], name: "index_blog_posts_on_organization_id"
-    t.index ["slug"], name: "index_blog_posts_on_slug", unique: true
-    t.index ["status"], name: "index_blog_posts_on_status"
-  end
-
-  create_table "blog_reviews", force: :cascade do |t|
-    t.bigint "blog_post_id", null: false
-    t.text "comment"
-    t.datetime "created_at", null: false
-    t.integer "rating", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["blog_post_id"], name: "index_blog_reviews_on_blog_post_id"
-    t.index ["rating"], name: "index_blog_reviews_on_rating"
-    t.index ["user_id"], name: "index_blog_reviews_on_user_id"
-  end
-
-  create_table "crm_customers", force: :cascade do |t|
-    t.bigint "converted_user_id"
-    t.datetime "created_at", null: false
-    t.string "email"
-    t.string "first_name", null: false
-    t.string "last_name", null: false
-    t.string "lead_type", null: false
-    t.text "notes"
-    t.bigint "organization_id", null: false
-    t.string "phone_country_code", null: false
-    t.string "phone_number", null: false
-    t.datetime "updated_at", null: false
-    t.index ["converted_user_id"], name: "index_crm_customers_on_converted_user_id"
-    t.index ["organization_id"], name: "index_crm_customers_on_organization_id"
-  end
-
-  create_table "deals", force: :cascade do |t|
-    t.bigint "agent_buyer_id"
-    t.bigint "agent_seller_id"
-    t.bigint "client_id", null: false
-    t.datetime "created_at", null: false
-    t.string "deal_type", null: false
-    t.bigint "organization_id"
-    t.string "status", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "vehicle_id", null: false
-    t.index ["agent_buyer_id"], name: "index_deals_on_agent_buyer_id"
-    t.index ["agent_seller_id"], name: "index_deals_on_agent_seller_id"
-    t.index ["client_id"], name: "index_deals_on_client_id"
-    t.index ["deal_type"], name: "index_deals_on_deal_type"
-    t.index ["organization_id"], name: "index_deals_on_organization_id"
-    t.index ["status"], name: "index_deals_on_status"
-    t.index ["vehicle_id"], name: "index_deals_on_vehicle_id"
-  end
-
-  create_table "documents", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.text "file_url", null: false
-    t.boolean "is_public", default: false, null: false
-    t.bigint "organization_id", null: false
-    t.boolean "read_only_image", default: false, null: false
-    t.string "title", null: false
-    t.datetime "updated_at", null: false
-    t.index ["is_public"], name: "index_documents_on_is_public"
-    t.index ["organization_id"], name: "index_documents_on_organization_id"
-  end
-
-  create_table "entity_features", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.bigint "featurable_id", null: false
-    t.string "featurable_type", null: false
-    t.bigint "feature_id", null: false
-    t.datetime "updated_at", null: false
-    t.index ["featurable_type", "featurable_id"], name: "index_entity_features_on_featurable"
-    t.index ["feature_id"], name: "index_entity_features_on_feature_id"
-  end
-
-  create_table "event_requirements", force: :cascade do |t|
-    t.datetime "approved_at"
-    t.boolean "approved_by_user", default: false, null: false
-    t.decimal "cost_cents"
-    t.datetime "created_at", null: false
-    t.text "description", null: false
-    t.bigint "event_id", null: false
-    t.datetime "updated_at", null: false
-    t.index ["event_id"], name: "index_event_requirements_on_event_id"
-  end
-
-  create_table "events", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.boolean "custody_flag", default: false, null: false
-    t.string "event_type", null: false
-    t.bigint "organization_id"
-    t.decimal "price_cents", null: false
-    t.string "status", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.bigint "vehicle_id", null: false
-    t.index ["event_type"], name: "index_events_on_event_type"
-    t.index ["organization_id"], name: "index_events_on_organization_id"
-    t.index ["status"], name: "index_events_on_status"
-    t.index ["user_id"], name: "index_events_on_user_id"
-    t.index ["vehicle_id"], name: "index_events_on_vehicle_id"
-  end
-
-  create_table "families", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.string "name", null: false
-    t.datetime "updated_at", null: false
-    t.index ["name"], name: "index_families_on_name"
-  end
-
-  create_table "family_members", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.bigint "family_id", null: false
-    t.string "role"
-    t.string "status", default: "Pending", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["family_id"], name: "index_family_members_on_family_id"
-    t.index ["user_id"], name: "index_family_members_on_user_id"
-  end
-
-  create_table "features", force: :cascade do |t|
-    t.string "category"
-    t.datetime "created_at", null: false
-    t.text "description"
-    t.string "name", null: false
-    t.string "target_model", null: false
-    t.datetime "updated_at", null: false
-    t.index ["category"], name: "index_features_on_category"
-    t.index ["name"], name: "index_features_on_name"
-    t.index ["target_model"], name: "index_features_on_target_model"
-  end
-
-  create_table "notes", force: :cascade do |t|
-    t.text "content", null: false
-    t.datetime "created_at", null: false
-    t.bigint "notable_id", null: false
-    t.string "notable_type", null: false
-    t.bigint "organization_id"
-    t.string "privacy_level", default: "private", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["notable_type", "notable_id"], name: "index_notes_on_notable"
-    t.index ["organization_id"], name: "index_notes_on_organization_id"
-    t.index ["privacy_level"], name: "index_notes_on_privacy_level"
-    t.index ["user_id"], name: "index_notes_on_user_id"
-  end
-
-  create_table "offers", force: :cascade do |t|
-    t.decimal "amount_cents", null: false
-    t.datetime "created_at", null: false
-    t.bigint "deal_id", null: false
-    t.bigint "offeror_user_id", null: false
-    t.bigint "organization_id"
-    t.string "status", null: false
-    t.datetime "updated_at", null: false
-    t.index ["deal_id"], name: "index_offers_on_deal_id"
-    t.index ["offeror_user_id"], name: "index_offers_on_offeror_user_id"
-    t.index ["organization_id"], name: "index_offers_on_organization_id"
-  end
-
-  create_table "organization_roles", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.bigint "organization_id", null: false
-    t.jsonb "permissions", null: false
-    t.string "role_name", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["organization_id"], name: "index_organization_roles_on_organization_id"
-    t.index ["user_id"], name: "index_organization_roles_on_user_id"
-  end
-
-  create_table "organizations", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.string "email"
-    t.string "name", null: false
-    t.string "org_type", null: false
-    t.string "phone_country_code", null: false
-    t.string "phone_number", null: false
-    t.string "tax_id", null: false
-    t.datetime "updated_at", null: false
-    t.index ["name"], name: "index_organizations_on_name"
-    t.index ["org_type"], name: "index_organizations_on_org_type"
-    t.index ["tax_id"], name: "index_organizations_on_tax_id"
-  end
-
-  create_table "plans", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.jsonb "features_config"
-    t.string "name", null: false
-    t.decimal "price_cents", null: false
-    t.string "target_type", null: false
-    t.datetime "updated_at", null: false
-  end
-
-  create_table "subscriptions", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.date "expires_at"
-    t.bigint "plan_id", null: false
-    t.string "status", null: false
-    t.bigint "subscribable_id", null: false
-    t.string "subscribable_type", null: false
-    t.datetime "updated_at", null: false
-    t.index ["plan_id"], name: "index_subscriptions_on_plan_id"
-    t.index ["subscribable_type", "subscribable_id"], name: "index_subscriptions_on_subscribable"
-  end
-
-  create_table "users", force: :cascade do |t|
-    t.boolean "active", default: false, null: false
-    t.string "city", null: false
-    t.datetime "created_at", null: false
-    t.string "email", default: "", null: false
-    t.string "encrypted_password", default: "", null: false
-    t.string "first_name", null: false
-    t.integer "global_role", default: 0, null: false
-    t.string "id_number", null: false
-    t.string "id_type", null: false
-    t.string "last_name", null: false
-    t.string "phone_country_code", null: false
-    t.string "phone_number", null: false
-    t.string "provider"
-    t.datetime "remember_created_at"
-    t.datetime "reset_password_sent_at"
-    t.string "reset_password_token"
-    t.string "theme", default: "light", null: false
-    t.string "uid"
-    t.datetime "updated_at", null: false
-    t.index ["email"], name: "index_users_on_email", unique: true
-    t.index ["id_number", "id_type"], name: "idx_users_id_number_type", unique: true
-    t.index ["id_number", "phone_number", "email"], name: "idx_users_search"
-    t.index ["phone_number"], name: "index_users_on_phone_number", unique: true
-    t.index ["provider", "uid"], name: "index_users_on_provider_and_uid", unique: true
-    t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
-  end
-
-  create_table "vehicles", force: :cascade do |t|
-    t.string "brand", null: false
-    t.string "chasis_id", null: false
-    t.string "color", null: false
-    t.datetime "created_at", null: false
-    t.bigint "family_id"
-    t.string "model", null: false
-    t.string "motor_id", null: false
-    t.string "plate", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.string "vehicle_type", null: false
-    t.string "year", null: false
-    t.index ["brand", "model"], name: "index_vehicles_on_brand_and_model"
-    t.index ["chasis_id"], name: "index_vehicles_on_chasis_id"
-    t.index ["family_id"], name: "index_vehicles_on_family_id"
-    t.index ["motor_id"], name: "index_vehicles_on_motor_id"
-    t.index ["plate"], name: "index_vehicles_on_plate"
-    t.index ["user_id"], name: "index_vehicles_on_user_id"
-    t.index ["vehicle_type"], name: "index_vehicles_on_vehicle_type"
-  end
-
-  add_foreign_key "blog_posts", "organizations", on_delete: :cascade
-  add_foreign_key "blog_posts", "users", column: "author_id", on_delete: :restrict
-  add_foreign_key "blog_reviews", "blog_posts", on_delete: :cascade
-  add_foreign_key "blog_reviews", "users", on_delete: :cascade
-  add_foreign_key "crm_customers", "organizations", on_delete: :cascade
-  add_foreign_key "crm_customers", "users", column: "converted_user_id", on_delete: :nullify
-  add_foreign_key "deals", "organizations", on_delete: :nullify
-  add_foreign_key "deals", "users", column: "agent_buyer_id", on_delete: :nullify
-  add_foreign_key "deals", "users", column: "agent_seller_id", on_delete: :nullify
-  add_foreign_key "deals", "users", column: "client_id", on_delete: :restrict
-  add_foreign_key "deals", "vehicles", on_delete: :restrict
-  add_foreign_key "documents", "organizations", on_delete: :cascade
-  add_foreign_key "entity_features", "features", on_delete: :cascade
-  add_foreign_key "event_requirements", "events", on_delete: :cascade
-  add_foreign_key "events", "organizations", on_delete: :nullify
-  add_foreign_key "events", "users", on_delete: :restrict
-  add_foreign_key "events", "vehicles", on_delete: :cascade
-  add_foreign_key "family_members", "families", on_delete: :cascade
-  add_foreign_key "family_members", "users", on_delete: :cascade
-  add_foreign_key "notes", "organizations", on_delete: :nullify
-  add_foreign_key "notes", "users", on_delete: :cascade
-  add_foreign_key "offers", "deals", on_delete: :cascade
-  add_foreign_key "offers", "organizations", on_delete: :nullify
-  add_foreign_key "offers", "users", column: "offeror_user_id", on_delete: :restrict
-  add_foreign_key "organization_roles", "organizations", on_delete: :cascade
-  add_foreign_key "organization_roles", "users", on_delete: :cascade
-  add_foreign_key "subscriptions", "plans"
-  add_foreign_key "vehicles", "families", on_delete: :nullify
-  add_foreign_key "vehicles", "users", on_delete: :restrict
-end
-</file>
-
 <file path=".gitignore">
 # See https://help.github.com/articles/ignoring-files for more about ignoring files.
 #
@@ -4112,48 +5983,487 @@ end
 !/app/assets/builds/.keep
 </file>
 
+<file path="app/controllers/application_controller.rb">
+class ApplicationController < ActionController::Base
+  allow_browser versions: :modern
+  stale_when_importmap_changes
+
+  before_action :use_spanish_locale
+  before_action :set_whatsapp_cta
+  before_action :set_fedcm_permissions_policy
+  before_action :configure_permitted_parameters, if: :devise_controller?
+
+  # Redirección tras iniciar sesión exitosamente
+  def after_sign_in_path_for(resource)
+    os_root_path
+  end
+
+  # Redirección tras cerrar sesión
+  def after_sign_out_path_for(resource_or_scope)
+    root_path
+  end
+
+  private
+
+  def use_spanish_locale
+    I18n.locale = :es
+  end
+
+  def set_whatsapp_cta
+    @whatsapp_number = ENV.fetch("WHATSAPP_NUMBER")
+    @whatsapp_message = URI.encode_www_form_component(whatsapp_cta_message)
+    @cta_url = "https://wa.me/#{@whatsapp_number}?text=#{@whatsapp_message}"
+  end
+
+  def whatsapp_cta_message
+    t("navbar.public.whatsapp_message")
+  end
+
+  def set_fedcm_permissions_policy
+    fedcm = 'identity-credentials-get=(self "https://accounts.google.com")'
+    existing = response.headers["Permissions-Policy"]
+    response.headers["Permissions-Policy"] = [existing, fedcm].compact.join(", ")
+  end
+
+  def configure_permitted_parameters
+    devise_parameter_sanitizer.permit(:sign_up, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city ])
+    devise_parameter_sanitizer.permit(:account_update, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme ])
+  end
+end
+</file>
+
+<file path="app/helpers/application_helper.rb">
+module ApplicationHelper
+  def landing_t(key, **options)
+    t("landing.#{controller.action_name}.#{key}", **options)
+  end
+
+  def navbar_cta
+    t("navbar.public.#{controller.action_name}.cta", default: t("navbar.public.cta"))
+  end
+
+  def time_ago_in_words_local(from_time)
+    return "-" if from_time.blank?
+
+    time_ago_in_words(from_time.in_time_zone)
+  end
+
+  def l_datetime(time, format: :short)
+    return "-" if time.blank?
+
+    local_time = time.in_time_zone
+
+    case format
+    when :short
+      local_time.strftime("%d %b %Y - %H:%M")
+    when :date_only
+      local_time.strftime("%d/%m/%Y")
+    when :time_only
+      local_time.strftime("%H:%M")
+    else
+      l(local_time, format: format)
+    end
+  end
+end
+</file>
+
+<file path="db/schema.rb">
+# This file is auto-generated from the current state of the database. Instead
+# of editing this file, please use the migrations feature of Active Record to
+# incrementally modify your database, and then regenerate this schema definition.
+#
+# This file is the source Rails uses to define your schema when running `bin/rails
+# db:schema:load`. When creating a new database, `bin/rails db:schema:load` tends to
+# be faster and is potentially less error prone than running all of your
+# migrations from scratch. Old migrations may fail to apply correctly if those
+# migrations use external dependencies or application code.
+#
+# It's strongly recommended that you check this file into your version control system.
+
+ActiveRecord::Schema[8.1].define(version: 2026_09_24_170622) do
+  # These are extensions that must be enabled in order to support this database
+  enable_extension "pg_catalog.plpgsql"
+  enable_extension "pgcrypto"
+
+  create_table "blog_posts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "author_id", null: false
+    t.text "content"
+    t.datetime "created_at", null: false
+    t.text "meta_description"
+    t.string "meta_title"
+    t.uuid "organization_id", null: false
+    t.jsonb "schema_json"
+    t.string "slug"
+    t.string "status"
+    t.string "title"
+    t.datetime "updated_at", null: false
+    t.index ["author_id"], name: "index_blog_posts_on_author_id"
+    t.index ["organization_id"], name: "index_blog_posts_on_organization_id"
+    t.index ["slug"], name: "index_blog_posts_on_slug", unique: true
+    t.index ["status"], name: "index_blog_posts_on_status"
+  end
+
+  create_table "blog_reviews", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "blog_post_id", null: false
+    t.text "comment"
+    t.datetime "created_at", null: false
+    t.integer "rating"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.index ["blog_post_id"], name: "index_blog_reviews_on_blog_post_id"
+    t.index ["user_id"], name: "index_blog_reviews_on_user_id"
+  end
+
+  create_table "crm_customers", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "converted_user_id"
+    t.datetime "created_at", null: false
+    t.string "email"
+    t.string "first_name", null: false
+    t.string "last_name", null: false
+    t.string "lead_type", null: false
+    t.text "notes"
+    t.uuid "organization_id", null: false
+    t.string "phone_country_code", null: false
+    t.string "phone_number", null: false
+    t.datetime "updated_at", null: false
+    t.index ["converted_user_id"], name: "index_crm_customers_on_converted_user_id"
+    t.index ["email"], name: "index_crm_customers_on_email"
+    t.index ["first_name"], name: "index_crm_customers_on_first_name"
+    t.index ["last_name"], name: "index_crm_customers_on_last_name"
+    t.index ["lead_type"], name: "index_crm_customers_on_lead_type"
+    t.index ["organization_id"], name: "index_crm_customers_on_organization_id"
+    t.index ["phone_country_code"], name: "index_crm_customers_on_phone_country_code"
+    t.index ["phone_number"], name: "index_crm_customers_on_phone_number"
+  end
+
+  create_table "deals", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "agent_buyer_id"
+    t.uuid "agent_seller_id"
+    t.uuid "client_id", null: false
+    t.datetime "created_at", null: false
+    t.string "deal_type", null: false
+    t.uuid "organization_id"
+    t.string "status", null: false
+    t.datetime "updated_at", null: false
+    t.uuid "vehicle_id", null: false
+    t.index ["agent_buyer_id"], name: "index_deals_on_agent_buyer_id"
+    t.index ["agent_seller_id"], name: "index_deals_on_agent_seller_id"
+    t.index ["client_id"], name: "index_deals_on_client_id"
+    t.index ["deal_type"], name: "index_deals_on_deal_type"
+    t.index ["organization_id"], name: "index_deals_on_organization_id"
+    t.index ["status"], name: "index_deals_on_status"
+    t.index ["vehicle_id"], name: "index_deals_on_vehicle_id"
+  end
+
+  create_table "documents", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "file_url"
+    t.boolean "is_public"
+    t.uuid "organization_id", null: false
+    t.boolean "read_only_image"
+    t.string "title"
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_documents_on_organization_id"
+  end
+
+  create_table "entity_features", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "featurable_id", null: false
+    t.string "featurable_type", null: false
+    t.uuid "feature_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["featurable_type", "featurable_id"], name: "index_entity_features_on_featurable"
+    t.index ["feature_id"], name: "index_entity_features_on_feature_id"
+  end
+
+  create_table "event_requirements", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "approved_at"
+    t.boolean "approved_by_user"
+    t.decimal "cost_cents"
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.uuid "event_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["event_id"], name: "index_event_requirements_on_event_id"
+  end
+
+  create_table "events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.boolean "custody_flag"
+    t.string "event_type"
+    t.uuid "organization_id", null: false
+    t.decimal "price_cents"
+    t.string "status"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.uuid "vehicle_id", null: false
+    t.index ["event_type"], name: "index_events_on_event_type"
+    t.index ["organization_id"], name: "index_events_on_organization_id"
+    t.index ["status"], name: "index_events_on_status"
+    t.index ["user_id"], name: "index_events_on_user_id"
+    t.index ["vehicle_id"], name: "index_events_on_vehicle_id"
+  end
+
+  create_table "families", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "name"
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "family_members", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "family_id", null: false
+    t.string "role"
+    t.string "status"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.index ["family_id"], name: "index_family_members_on_family_id"
+    t.index ["user_id"], name: "index_family_members_on_user_id"
+  end
+
+  create_table "features", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "name"
+    t.string "target_model"
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "notes", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.text "content"
+    t.datetime "created_at", null: false
+    t.uuid "notable_id", null: false
+    t.string "notable_type", null: false
+    t.uuid "organization_id", null: false
+    t.string "privacy_level"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.index ["notable_type", "notable_id"], name: "index_notes_on_notable"
+    t.index ["organization_id"], name: "index_notes_on_organization_id"
+    t.index ["privacy_level"], name: "index_notes_on_privacy_level"
+    t.index ["user_id"], name: "index_notes_on_user_id"
+  end
+
+  create_table "offers", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.decimal "amount_cents", null: false
+    t.datetime "created_at", null: false
+    t.uuid "deal_id", null: false
+    t.uuid "offeror_user_id", null: false
+    t.uuid "organization_id"
+    t.string "status", null: false
+    t.datetime "updated_at", null: false
+    t.index ["amount_cents"], name: "index_offers_on_amount_cents"
+    t.index ["deal_id"], name: "index_offers_on_deal_id"
+    t.index ["offeror_user_id"], name: "index_offers_on_offeror_user_id"
+    t.index ["organization_id"], name: "index_offers_on_organization_id"
+    t.index ["status"], name: "index_offers_on_status"
+  end
+
+  create_table "organization_roles", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "organization_id", null: false
+    t.jsonb "permissions"
+    t.string "role_name"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.index ["organization_id"], name: "index_organization_roles_on_organization_id"
+    t.index ["user_id"], name: "index_organization_roles_on_user_id"
+  end
+
+  create_table "organizations", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "email"
+    t.string "name"
+    t.string "org_type"
+    t.string "phone_country_code"
+    t.string "phone_number"
+    t.string "tax_id"
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_organizations_on_email"
+    t.index ["name"], name: "index_organizations_on_name"
+    t.index ["org_type"], name: "index_organizations_on_org_type"
+    t.index ["phone_number"], name: "index_organizations_on_phone_number"
+    t.index ["tax_id"], name: "index_organizations_on_tax_id"
+  end
+
+  create_table "plans", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.jsonb "features_config"
+    t.string "name"
+    t.decimal "price_cents"
+    t.string "target_type"
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "subscriptions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.date "expires_at"
+    t.uuid "plan_id", null: false
+    t.string "status"
+    t.uuid "subscribable_id", null: false
+    t.string "subscribable_type", null: false
+    t.datetime "updated_at", null: false
+    t.index ["plan_id"], name: "index_subscriptions_on_plan_id"
+    t.index ["subscribable_type", "subscribable_id"], name: "index_subscriptions_on_subscribable"
+  end
+
+  create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.boolean "active", default: false
+    t.string "city"
+    t.datetime "created_at", null: false
+    t.string "email", default: "", null: false
+    t.string "encrypted_password", default: "", null: false
+    t.string "first_name"
+    t.integer "global_role"
+    t.string "id_number"
+    t.string "id_type"
+    t.string "last_name"
+    t.string "phone_country_code"
+    t.string "phone_number"
+    t.string "provider"
+    t.datetime "remember_created_at"
+    t.datetime "reset_password_sent_at"
+    t.string "reset_password_token"
+    t.string "theme"
+    t.string "uid"
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_users_on_email", unique: true
+    t.index ["id_number", "id_type"], name: "idx_users_id_number_type", unique: true
+    t.index ["id_number", "phone_number", "email"], name: "idx_users_search"
+    t.index ["phone_number"], name: "index_users_on_phone_number", unique: true
+    t.index ["provider", "uid"], name: "index_users_on_provider_and_uid", unique: true
+    t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
+  end
+
+  create_table "vehicles", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "brand"
+    t.string "chasis_id"
+    t.string "color"
+    t.datetime "created_at", null: false
+    t.uuid "family_id", null: false
+    t.string "model"
+    t.string "motor_id"
+    t.string "plate"
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.string "vehicle_type"
+    t.string "year"
+    t.index ["brand"], name: "index_vehicles_on_brand"
+    t.index ["chasis_id"], name: "index_vehicles_on_chasis_id", unique: true
+    t.index ["family_id"], name: "index_vehicles_on_family_id"
+    t.index ["model"], name: "index_vehicles_on_model"
+    t.index ["motor_id"], name: "index_vehicles_on_motor_id", unique: true
+    t.index ["plate"], name: "index_vehicles_on_plate", unique: true
+    t.index ["user_id"], name: "index_vehicles_on_user_id"
+    t.index ["vehicle_type"], name: "index_vehicles_on_vehicle_type"
+  end
+
+  create_table "webauthn_credentials", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "external_id", null: false
+    t.text "public_key", null: false
+    t.bigint "sign_count", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.uuid "user_id", null: false
+    t.index ["external_id"], name: "index_webauthn_credentials_on_external_id", unique: true
+    t.index ["user_id"], name: "index_webauthn_credentials_on_user_id"
+  end
+
+  add_foreign_key "blog_posts", "organizations"
+  add_foreign_key "blog_posts", "users", column: "author_id"
+  add_foreign_key "blog_reviews", "blog_posts"
+  add_foreign_key "blog_reviews", "users"
+  add_foreign_key "crm_customers", "organizations", on_delete: :cascade
+  add_foreign_key "crm_customers", "users", column: "converted_user_id", on_delete: :nullify
+  add_foreign_key "deals", "organizations", on_delete: :nullify
+  add_foreign_key "deals", "users", column: "agent_buyer_id", on_delete: :nullify
+  add_foreign_key "deals", "users", column: "agent_seller_id", on_delete: :nullify
+  add_foreign_key "deals", "users", column: "client_id", on_delete: :restrict
+  add_foreign_key "deals", "vehicles", on_delete: :restrict
+  add_foreign_key "documents", "organizations"
+  add_foreign_key "entity_features", "features"
+  add_foreign_key "event_requirements", "events"
+  add_foreign_key "events", "organizations"
+  add_foreign_key "events", "users"
+  add_foreign_key "events", "vehicles"
+  add_foreign_key "family_members", "families"
+  add_foreign_key "family_members", "users"
+  add_foreign_key "notes", "organizations"
+  add_foreign_key "notes", "users"
+  add_foreign_key "offers", "deals", on_delete: :cascade
+  add_foreign_key "offers", "organizations", on_delete: :nullify
+  add_foreign_key "offers", "users", column: "offeror_user_id", on_delete: :restrict
+  add_foreign_key "organization_roles", "organizations"
+  add_foreign_key "organization_roles", "users"
+  add_foreign_key "subscriptions", "plans"
+  add_foreign_key "vehicles", "families"
+  add_foreign_key "vehicles", "users"
+  add_foreign_key "webauthn_credentials", "users"
+end
+</file>
+
 <file path="Gemfile">
 source "https://rubygems.org"
 
-# Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
+# ===================================================================
+# CORE DE RAILS & MOTOR DE BASE DE DATOS
+# ===================================================================
 gem "rails", "~> 8.1.3", ">= 8.1.3.1"
-# The modern asset pipeline for Rails [https://github.com/rails/propshaft]
-gem "propshaft"
-# Use postgresql as the database for Active Record
 gem "pg", "~> 1.1"
-# Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
-# Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]
-gem "importmap-rails"
-# Hotwire's SPA-like page accelerator [https://turbo.hotwired.dev]
-gem "turbo-rails"
-# Hotwire's modest JavaScript framework [https://stimulus.hotwired.dev]
-gem "stimulus-rails"
-# Build JSON APIs with ease [https://github.com/rails/jbuilder]
-gem "jbuilder"
-# json 3.x only accepts keyword args; ActiveSupport::JSON.decode still passes a Hash
-# and that 500s when Rails reads the session cookie (csrf_meta_tags).
-gem "json", "~> 2.13"
-
-# Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
-# gem "bcrypt", "~> 3.1.7"
-
-# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+gem "bootsnap", require: false
+gem "thruster", require: false
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 
-# Use the database-backed adapters for Rails.cache, Active Job, and Action Cable
+# Pipeline de Assets y JS
+gem "propshaft"
+gem "importmap-rails"
+gem "turbo-rails"
+gem "stimulus-rails"
+
+# Adaptares de Solid (Cache, Queue, Cable)
 gem "solid_cache"
 gem "solid_queue"
 gem "solid_cable"
 
-# Reduces boot times through caching; required in config/boot.rb
-gem "bootsnap", require: false
+# Serialización y utilidades
+gem "jbuilder"
+gem "json", "~> 2.13"
+gem "friendly_id"
 
-# Add HTTP asset caching/compression and X-Sendfile acceleration to Puma [https://github.com/basecamp/thruster/]
-gem "thruster", require: false
+# ===================================================================
+# AUTENTICACIÓN, OAUTH & AUTORIZACIÓN
+# ===================================================================
+gem "devise", "~> 5.0"
+gem "omniauth"
+gem "omniauth-google-oauth2"
+gem "omniauth-rails_csrf_protection"
+gem "googleauth"
+gem "pundit"
+gem "webauthn", "~> 3.4"
 
-# Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
+# ===================================================================
+# INTERFAZ DE USUARIO, FORMULARIOS & DASHBOARDS
+# ===================================================================
+gem "tailwindcss-rails", "~> 4.6"
+gem "simple_form"
+gem "country_select"
+gem "pagy"
+gem "chartkick", "~> 5.2"
+gem "groupdate", "~> 6.8"
+
+# ===================================================================
+# MÁQUINA DE ESTADOS & ALMACENAMIENTO (AWS S3 / ACTIVE STORAGE)
+# ===================================================================
+gem "aasm", "~> 6.0"
+gem "aws-sdk-s3", "~> 1.229"
 gem "image_processing", "~> 1.2"
+
+# ===================================================================
+# CONFIGURACIÓN DE ENTORNOS (DEVELOPMENT & TEST)
+# ===================================================================
+gem "dotenv-rails", groups: [ :development, :test ]
 
 group :development, :test do
   gem "rspec-rails"
@@ -4174,29 +6484,33 @@ group :test do
   gem "selenium-webdriver"
   gem "shoulda-matchers"
 end
-
-gem "tailwindcss-rails", "~> 4.6"
-gem "dotenv-rails", groups: [ :development, :test ]
-
-gem "devise", "~> 5.0"
-
-gem "chartkick", "~> 5.2"
-gem "groupdate", "~> 6.8"
-
-gem "aasm", "~> 6.0"
-
-gem "aws-sdk-s3", "~> 1.229"
-
-gem "pagy"
-gem "pundit"
-gem "simple_form"
-gem "friendly_id"
 </file>
 
 <file path="config/routes.rb">
 Rails.application.routes.draw do
  root "landing#sellers"
  get "buyers", to: "landing#buyers"
+
+ devise_for :users, controllers: {
+    omniauth_callbacks: "users/omniauth_callbacks"
+  }
+
+  namespace :os do
+    root to: "dashboards#show"
+    resource :dashboard, only: [:show]
+  end
+
+  namespace :users do
+    post "auth/google_id_token", to: "google_id_tokens#create", as: :google_id_token
+
+    resources :passkeys, only: [:index, :create, :destroy] do
+      collection do
+        post :callback
+        post :authenticate_options
+        post :authenticate
+      end
+    end
+  end
 end
 </file>
 
