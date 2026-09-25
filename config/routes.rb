@@ -8,13 +8,13 @@ Rails.application.routes.draw do
 
   namespace :os do
     root to: "dashboards#show"
-    resource :dashboard, only: [:show]
+    resource :dashboard, only: [ :show ]
   end
 
   namespace :users do
     post "auth/google_id_token", to: "google_id_tokens#create", as: :google_id_token
 
-    resources :passkeys, only: [:index, :create, :destroy] do
+    resources :passkeys, only: [ :index, :create, :destroy ] do
       collection do
         post :callback
         post :authenticate_options

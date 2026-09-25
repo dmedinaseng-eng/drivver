@@ -1,14 +1,14 @@
 FactoryBot.define do
   factory :vehicle do
-    user { nil }
-    family { nil }
-    plate { "MyString" }
-    color { "MyString" }
-    chasis_id { "MyString" }
-    motor_id { "MyString" }
-    vehicle_type { "MyString" }
-    brand { "MyString" }
-    model { "MyString" }
-    year { "MyString" }
+    user
+    family
+    sequence(:plate) { |n| "ABC#{n.to_s.rjust(3, "0")}" }
+    color { "Negro" }
+    sequence(:chasis_id) { |n| "CHS#{n.to_s.rjust(8, "0")}" }
+    sequence(:motor_id) { |n| "MTR#{n.to_s.rjust(8, "0")}" }
+    vehicle_type { "sedan" }
+    brand { "Toyota" }
+    model { "Corolla" }
+    year { "2020" }
   end
 end

@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :blog_review do
-    blog_post { nil }
-    user { nil }
-    rating { 1 }
-    comment { "MyText" }
+    blog_post
+    user
+    rating { 5 }
+    comment { "Muy útil" }
   end
 end

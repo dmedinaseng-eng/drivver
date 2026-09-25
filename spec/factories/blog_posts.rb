@@ -1,13 +1,10 @@
 FactoryBot.define do
   factory :blog_post do
-    organization { nil }
-    author_id { "" }
-    title { "MyString" }
-    slug { "MyString" }
-    content { "MyText" }
-    meta_title { "MyString" }
-    meta_description { "MyText" }
-    schema_json { "" }
-    status { "MyString" }
+    organization
+    association :author, factory: :user
+    title { "Guía de compra segura" }
+    sequence(:slug) { |n| "guia-compra-#{n}" }
+    content { "Contenido del artículo" }
+    status { "draft" }
   end
 end

@@ -2,7 +2,7 @@ class User < ApplicationRecord
   # Configuración de Devise + OmniAuth
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable,
-         :omniauthable, omniauth_providers: [:google_oauth2]
+         :omniauthable, omniauth_providers: [ :google_oauth2 ]
 
   # Enum de roles globales
   enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
@@ -11,6 +11,8 @@ class User < ApplicationRecord
 
   # Relación para Passkeys (WebAuthn / FIDO2)
   has_many :webauthn_credentials, dependent: :destroy
+
+  has_many :subscriptions, as: :subscribable, dependent: :destroy
 
   # Relaciones del ecosistema Drivver
   has_many :organization_roles, dependent: :destroy
@@ -35,11 +37,11 @@ class User < ApplicationRecord
   end
 
   def active_subscription
-    subscriptions.where(status: 'active').where('expires_at > ?', Date.today).first
+    subscriptions.where(status: "active").where("expires_at > ?", Date.today).first
   end
 
   def current_plan
-    active_subscription&.plan || Plan.find_by(name: 'basic')
+    active_subscription&.plan || Plan.find_by(name: "basic")
   end
 
   # Crear o encontrar usuario desde Google OAuth / One Tap

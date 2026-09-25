@@ -25,9 +25,9 @@ class CreateUsers < ActiveRecord::Migration[8.1]
     end
     add_index :users, :email, unique: true
     add_index :users, :reset_password_token, unique: true
-    add_index :users, [:provider, :uid], unique: true
+    add_index :users, [ :provider, :uid ], unique: true
     add_index :users, :phone_number, unique: true
-    add_index :users, [:id_number, :id_type], unique: true, name: "idx_users_id_number_type"
-    add_index :users, [:id_number, :phone_number, :email], name: "idx_users_search"
+    add_index :users, [ :id_number, :id_type ], unique: true, name: "idx_users_id_number_type"
+    add_index :users, [ :id_number, :phone_number, :email ], name: "idx_users_search"
   end
 end

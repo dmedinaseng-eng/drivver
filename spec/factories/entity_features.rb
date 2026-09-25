@@ -1,6 +1,6 @@
 FactoryBot.define do
   factory :entity_feature do
-    feature { nil }
-    featurable { nil }
+    feature
+    association :featurable, factory: :plan
   end
 end

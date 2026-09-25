@@ -4,7 +4,7 @@ class SetDefaultActiveTrueOnUsers < ActiveRecord::Migration[8.1]
 
     reversible do |dir|
       dir.up do
-        User.where(active: [nil, false]).update_all(active: true)
+        User.where(active: [ nil, false ]).update_all(active: true)
       end
     end
   end

@@ -1,8 +1,12 @@
 FactoryBot.define do
   factory :plan do
-    name { "MyString" }
-    target_type { "MyString" }
-    price_cents { "9.99" }
-    features_config { "" }
+    sequence(:name) { |n| "plan-#{n}" }
+    target_type { "user" }
+    price_cents { 0 }
+    features_config { {} }
+
+    trait :basic do
+      name { "basic" }
+    end
   end
 end

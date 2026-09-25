@@ -1,11 +1,9 @@
 FactoryBot.define do
   factory :deal do
-    vehicle { nil }
-    organization { nil }
-    agent_seller_id { "" }
-    client { nil }
-    agent_buyer_id { "" }
-    deal_type { "MyString" }
-    status { "MyString" }
+    vehicle
+    organization
+    association :client, factory: :user
+    deal_type { "sale" }
+    status { "open" }
   end
 end

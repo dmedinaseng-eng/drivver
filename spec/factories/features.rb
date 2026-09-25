@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :feature do
-    name { "MyString" }
-    category { "MyString" }
-    target_model { "MyString" }
-    description { "MyText" }
+    sequence(:name) { |n| "feature-#{n}" }
+    category { "core" }
+    target_model { "User" }
+    description { "Funcionalidad de la plataforma" }
   end
 end

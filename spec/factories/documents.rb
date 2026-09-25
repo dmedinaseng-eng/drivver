@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :document do
-    organization { nil }
-    title { "MyString" }
-    file_url { "MyText" }
+    organization
+    title { "Manual de usuario" }
+    file_url { "https://example.com/doc.pdf" }
     is_public { false }
     read_only_image { false }
   end

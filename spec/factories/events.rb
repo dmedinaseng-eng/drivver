@@ -1,11 +1,11 @@
 FactoryBot.define do
   factory :event do
-    vehicle { nil }
-    organization { nil }
-    user { nil }
-    event_type { "MyString" }
-    status { "MyString" }
+    vehicle
+    organization
+    user
+    event_type { "maintenance" }
+    status { "open" }
     custody_flag { false }
-    price_cents { "9.99" }
+    price_cents { 150000 }
   end
 end

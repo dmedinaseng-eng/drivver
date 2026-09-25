@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :webauthn_credential do
-    user { nil }
-    external_id { "MyString" }
-    public_key { "MyText" }
-    sign_count { "" }
+    user
+    sequence(:external_id) { |n| "credential-#{n}" }
+    public_key { "pubkey-#{SecureRandom.hex(8)}" }
+    sign_count { 0 }
   end
 end

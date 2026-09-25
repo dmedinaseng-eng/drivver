@@ -87,5 +87,5 @@ SimpleForm.setup do |config|
   config.default_wrapper = :default
   config.boolean_style = :nested
   config.error_notification_tag = :div
-  config.error_notification_class = 'mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700'
+  config.error_notification_class = "mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700"
 end

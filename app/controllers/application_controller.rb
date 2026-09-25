@@ -36,7 +36,7 @@ class ApplicationController < ActionController::Base
   def set_fedcm_permissions_policy
     fedcm = 'identity-credentials-get=(self "https://accounts.google.com")'
     existing = response.headers["Permissions-Policy"]
-    response.headers["Permissions-Policy"] = [existing, fedcm].compact.join(", ")
+    response.headers["Permissions-Policy"] = [ existing, fedcm ].compact.join(", ")
   end
 
   def configure_permitted_parameters

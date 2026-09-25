@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :subscription do
-    subscribable { nil }
-    plan { nil }
-    status { "MyString" }
-    expires_at { "2026-09-20" }
+    association :subscribable, factory: :user
+    plan
+    status { "active" }
+    expires_at { 1.month.from_now.to_date }
   end
 end
