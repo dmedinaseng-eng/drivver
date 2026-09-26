@@ -1,20 +1,17 @@
 class User < ApplicationRecord
-  # Configuración de Devise + OmniAuth
+  before_validation :set_default_context, on: :create
+
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable,
          :omniauthable, omniauth_providers: [ :google_oauth2 ]
 
-  # Enum de roles globales
   enum :global_role, { standard: 0, super_admin: 1, developer: 2, c_level: 3 }, default: :standard
 
-  enum :theme, { light: 0, dark: 1 }, default: :light
+  enum :theme, { light: "light", dark: "dark" }, default: :light
 
-  # Relación para Passkeys (WebAuthn / FIDO2)
+
   has_many :webauthn_credentials, dependent: :destroy
-
   has_many :subscriptions, as: :subscribable, dependent: :destroy
-
-  # Relaciones del ecosistema Drivver
   has_many :organization_roles, dependent: :destroy
   has_many :organizations, through: :organization_roles
   has_many :vehicles, dependent: :restrict_with_error
@@ -24,10 +21,8 @@ class User < ApplicationRecord
   has_many :notes, dependent: :destroy
   has_many :blog_reviews, dependent: :destroy
 
-  # Validaciones
   validates :email, presence: true, uniqueness: { case_sensitive: false }
 
-  # Métodos de presentación
   def full_name
     "#{first_name} #{last_name}".strip
   end
@@ -44,12 +39,57 @@ class User < ApplicationRecord
     active_subscription&.plan || Plan.find_by(name: "basic")
   end
 
-  # Crear o encontrar usuario desde Google OAuth / One Tap
-  def self.from_omniauth(auth)
-    user = find_by(provider: auth.provider, uid: auth.uid) || find_by(email: auth.info.email)
+  def active_organization
+    return nil if operating_in_personal_context? || operating_in_admin_context?
 
+    organizations.find_by(id: current_context)
+  end
+  
+  def active_context_name
+    current_context.presence || "personal"
+  end
+
+  def operating_in_personal_context?
+    (current_context.presence || "personal") == "personal"
+  end
+
+  def operating_in_admin_context?
+    current_context == "admin" && internal_team?
+  end
+
+  def operating_in_org_context?
+    !operating_in_personal_context? && !operating_in_admin_context?
+  end
+
+  def operating_in_dealership?
+    active_organization&.org_type == "dealership"
+  end
+
+  def operating_in_workshop?
+    active_organization&.org_type == "workshop"
+  end
+
+  def operating_in_detailer?
+    active_organization&.org_type == "detailer_shop"
+  end
+
+  def operating_in_agency?
+    active_organization&.org_type == "marketing_agency"
+  end
+  
+  def active_backoffice_type
+    return "admin" if operating_in_admin_context?
+    return "personal" if operating_in_personal_context?
+
+    active_organization&.org_type || "personal"
+  end
+
+  def self.from_omniauth(auth)
+    user = find_by(provider: auth.provider, uid: auth.uid) || find_by("lower(email) = ?", auth.info.email.downcase)
     if user
-      user.update(provider: auth.provider, uid: auth.uid) if user.uid != auth.uid.to_s
+      if user.uid != auth.uid.to_s
+        user.update_columns(provider: auth.provider, uid: auth.uid)
+      end
       return user
     end
 

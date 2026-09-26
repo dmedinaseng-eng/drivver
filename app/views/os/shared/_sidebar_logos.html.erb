@@ -1,25 +1,18 @@
 <%= link_to os_root_path, class: "flex items-center gap-2 overflow-hidden shrink-0" do %>
-  <!-- CONTENEDOR EXPANDIDO: JS lo oculta al colapsar -->
   <div data-sidebar-target="logoFull" class="flex items-center transition-opacity duration-300">
-    <!-- Light Mode -->
-    <%= image_tag 'blue-logo-horizontal.png', 
+    <%= image_tag 'gradient-logo-h.svg', 
                   alt: 'Drivver OS', 
-                  class: "h-7 w-auto object-contain dark:hidden" %>
-    <!-- Dark Mode -->
-    <%= image_tag 'logo-horizontal.png', 
+                  class: "h-15 w-auto object-contain dark:hidden" %>
+    <%= image_tag 'wite-logo-h.svg', 
                   alt: 'Drivver OS', 
-                  class: "h-7 w-auto object-contain hidden dark:block" %>
+                  class: "h-15 w-auto object-contain hidden dark:block" %>
   </div>
-
-  <!-- CONTENEDOR COLAPSADO: JS lo muestra al colapsar -->
   <div data-sidebar-target="logoIcon" class="hidden items-center transition-opacity duration-300">
-    <!-- Light Mode -->
-    <%= image_tag 'simbolo_azul.png', 
+    <%= image_tag 'gradient-symbol.svg', 
                   alt: 'Drivver OS', 
-                  class: "h-7 w-auto object-contain dark:hidden" %>
-    <!-- Dark Mode -->
-    <%= image_tag 'simbolo-blanco.png', 
+                  class: "h-13 w-auto object-contain dark:hidden" %>
+    <%= image_tag 'wite-symbol.svg', 
                   alt: 'Drivver OS', 
-                  class: "h-7 w-auto object-contain hidden dark:block" %>
+                  class: "h-10 w-auto object-contain hidden dark:block" %>
   </div>
 <% end %>

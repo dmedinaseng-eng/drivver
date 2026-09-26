@@ -1,0 +1,18 @@
+<div class="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm">
+  <h2 class="text-lg font-bold text-[#0E1925] dark:text-white mb-2">Seguridad de la Cuenta</h2>
+  <p class="text-xs text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">Confirma tu clave actual para actualizar seguridad.</p>
+  <%= simple_form_for(@user, url: os_settings_path, method: :patch) do |f| %>
+    <div class="space-y-4">
+      <%= f.input :email, label: "Correo Electrónico" %>
+      <div class="border-t border-gray-100 dark:border-gray-800 my-4"></div>
+      <%= f.input :password, required: false, label: "Nueva Contraseña", hint: "Déjalo en blanco si no cambias", placeholder: "••••••••" %>
+      <%= f.input :password_confirmation, required: false, label: "Confirmar Nueva", placeholder: "••••••••" %>
+      <div class="p-4 bg-gray-50 dark:bg-[#142436] rounded-xl border border-gray-200 dark:border-gray-700 mt-4">
+        <%= f.input :current_password, required: true, label: "Contraseña Actual", placeholder: "••••••••" %>
+      </div>
+    </div>
+    <div class="mt-6">
+      <%= f.button :submit, "Actualizar Seguridad", class: "w-full py-3 bg-[#0E1925] dark:bg-white text-white dark:text-[#0E1925] hover:bg-black dark:hover:bg-gray-200 rounded-xl font-bold text-xs uppercase tracking-wide shadow-md transition-all cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

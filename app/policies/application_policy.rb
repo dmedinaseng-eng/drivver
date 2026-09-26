@@ -34,9 +34,40 @@ class ApplicationPolicy
     false
   end
 
-  # Helpers globales de rol
+  def personal_context?
+    user&.operating_in_personal_context?
+  end
+
+  def admin_context?
+    user&.operating_in_admin_context?
+  end
+
+  def dealership_context?
+    user&.operating_in_dealership?
+  end
+
+  def workshop_context?
+    user&.operating_in_workshop?
+  end
+
+  def detailer_context?
+    user&.operating_in_detailer?
+  end
+
+  def agency_context?
+    user&.operating_in_agency?
+  end
+
+  def current_org
+    user&.active_organization
+  end
+
   def super_admin?
     user&.super_admin? || user&.developer?
+  end
+
+  def os_access_allowed?
+    user.present?
   end
 
   class Scope

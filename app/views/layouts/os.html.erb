@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="es" class="h-full <%= current_user&.dark? ? 'dark' : '' %>">
+<html lang="es" class="h-full <%= current_user&.theme == 'dark' ? 'dark' : '' %>">
   <head>
-    <title>Drivver OS - Sistema Operativo Vehicular</title>
+    <title>Drivver OS - Ecosistema Vehicular</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
@@ -10,11 +10,15 @@
     <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
   </head>
-
-  <body class="bg-[#F8F9FA] dark:bg-[#050B14] antialiased flex h-screen overflow-hidden">
+  <body class="bg-[#F8F9FA] dark:bg-[#050B14] antialiased flex flex-col md:flex-row h-screen overflow-hidden">
+    <%= render 'os/shared/topbar_mobile' %>
     <%= render 'os/shared/sidebar' %>
-    <main id="main-content" class="flex-1 h-screen overflow-y-auto transition-all duration-300 md:ml-64">
-      <div class="p-4 md:p-8">
+    <main id="main-content" class="flex-1 h-full overflow-y-auto transition-all duration-300 md:ml-64 relative">
+      <% if current_context_ui[:id] != 'personal' %>
+        <div class="absolute top-0 left-0 w-full h-1 z-10" 
+             style="background-color: <%= current_context_ui[:color] %>; box-shadow: 0 0 10px <%= current_context_ui[:color] %>;"></div>
+      <% end %>
+      <div class="p-4 md:p-8 pt-6">
         <%= render 'shared/flash' %>
         <%= yield %>
       </div>

@@ -1,5 +1,5 @@
 class DashboardPolicy < ApplicationPolicy
     def show?
-      user.present?
+      os_access_allowed?
     end
 end

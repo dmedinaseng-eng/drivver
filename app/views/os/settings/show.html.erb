@@ -1,0 +1,15 @@
+<%= render 'os/shared/show_header', 
+    title: "Configuración", 
+    subtitle: "Gestiona tu cuenta, seguridad y preferencias" %>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+  <div class="lg:col-span-2 space-y-8">
+    <%= render 'os/settings/partials/god_mode' if current_user.internal_team? %>
+    <%= render 'os/settings/partials/theme_switch' %>
+    <%= render 'os/settings/partials/profile_form' %>
+  </div>
+  <div class="space-y-8">
+    <%= render 'os/settings/partials/passkeys' %>
+    <%= render 'os/settings/partials/security_form' %>
+  </div>
+</div>

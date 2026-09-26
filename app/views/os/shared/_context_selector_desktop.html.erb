@@ -1,0 +1,38 @@
+<div data-controller="dropdown" class="relative mt-4 w-full">
+  <!-- Botón Activo -->
+  <button type="button" data-action="click->dropdown#toggle" class="w-full flex items-center justify-between p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-[#142436] transition-colors cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-gray-800 focus:outline-none">
+    <div class="flex items-center gap-3 min-w-0">
+      <!-- Círculo Color Sólido + Emoji -->
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 font-bold shadow-sm" style="background-color: <%= current_context_ui[:color] %>;">
+        <%= current_context_ui[:emoji] %>
+      </div>
+      <!-- Texto Perfil -->
+      <div data-sidebar-target="itemText" class="flex flex-col text-left truncate">
+        <span class="text-xs font-bold truncate text-[#0E1925] dark:text-white">
+          <%= current_context_ui[:name] %>
+        </span>
+      </div>
+    </div>
+    <svg data-sidebar-target="itemText" class="w-4 h-4 text-gray-400 shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+  </button>
+
+  <!-- Lista Desplegable Desktop -->
+  <div data-dropdown-target="menu" class="hidden absolute top-14 left-0 w-full min-w-[16rem] bg-white dark:bg-[#142436] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl p-2 z-50 flex flex-col gap-1">
+    <span class="block px-3 py-2 text-[10px] font-black uppercase text-gray-400">Entornos Operativos</span>
+    
+    <% available_contexts_ui.each do |ctx| %>
+      <%= link_to os_switch_context_path(context_id: ctx[:id]), data: { turbo_method: :post }, class: "w-full text-left flex items-center gap-3 p-2.5 rounded-xl text-xs font-bold text-[#0E1925] dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#0E1925] transition-colors cursor-pointer #{current_context_ui[:id] == ctx[:id] ? 'bg-gray-100 dark:bg-[#0E1925]' : ''}" do %>
+        
+        <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 shadow-sm" style="background-color: <%= ctx[:color] %>;">
+          <%= ctx[:emoji] %>
+        </div>
+        
+        <span class="truncate flex-1"><%= ctx[:name] %></span>
+        
+        <% if current_context_ui[:id] == ctx[:id] %>
+          <div class="w-2 h-2 rounded-full shrink-0" style="background-color: <%= ctx[:color] %>;"></div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+</div>

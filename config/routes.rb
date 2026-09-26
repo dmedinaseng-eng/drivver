@@ -9,6 +9,13 @@ Rails.application.routes.draw do
   namespace :os do
     root to: "dashboards#show"
     resource :dashboard, only: [ :show ]
+    resource :settings, only: [:show, :update]
+
+    post "switch_context", to: "base#switch_context", as: :switch_context
+  end
+
+  namespace :admin do
+    resources :effective_roles, only: [:create]
   end
 
   namespace :users do

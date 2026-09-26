@@ -1,0 +1,15 @@
+<div class="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-3xl p-6 md:p-8 shadow-sm flex items-center justify-between"
+     data-controller="theme"
+     data-theme-url-value="<%= os_settings_path %>"
+     data-theme-csrf-token-value="<%= form_authenticity_token %>">
+  <div>
+    <h2 class="text-lg font-bold text-[#0E1925] dark:text-white">Modo Oscuro</h2>
+    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Cambia la apariencia del sistema operativo</p>
+  </div>
+  <label class="relative inline-flex items-center cursor-pointer">
+    <input type="checkbox" value="" class="sr-only peer"
+           data-action="change->theme#toggle"
+           <%= current_user&.dark? ? 'checked' : '' %>>
+    <div class="w-14 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all dark:border-gray-600 peer-checked:bg-[#1C5686]"></div>
+  </label>
+</div>

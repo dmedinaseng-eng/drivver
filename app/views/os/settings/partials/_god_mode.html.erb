@@ -1,0 +1,22 @@
+<section class="bg-white dark:bg-[#0A0A0A] border-2 <%= operating_as_internal_team? ? 'border-[#EF4444]' : 'border-[#1C5686]' %> rounded-2xl shadow-sm p-6 relative overflow-hidden transition-colors duration-300">
+  <div class="absolute top-0 right-0 w-32 h-32 opacity-5 rounded-bl-full pointer-events-none <%= operating_as_internal_team? ? 'bg-[#EF4444]' : 'bg-[#1C5686]' %>"></div>
+  
+  <h2 class="text-xl font-bold text-[#0E1925] dark:text-white mb-2">Entorno de Operación</h2>
+  <p class="text-sm text-gray-600 dark:text-gray-400 mb-6 max-w-2xl">
+    Por seguridad, tu sesión inicia en modo de usuario estándar. Cambia al Entorno Operativo para habilitar herramientas globales de administración.
+  </p>
+  <%= form_with url: admin_effective_roles_path, method: :post, data: { turbo: false } do |f| %>
+    <div class="flex flex-col sm:flex-row gap-4">
+      <button type="submit" name="target_role" value="admin" 
+              class="flex-1 p-4 rounded-xl border-2 transition-all duration-200 text-left relative <%= operating_as_internal_team? ? 'border-[#EF4444] bg-red-50 dark:bg-[#EF4444]/10 cursor-default' : 'border-gray-200 dark:border-gray-800 hover:border-[#EF4444] cursor-pointer' %>" <%= operating_as_internal_team? ? 'disabled' : '' %>>
+        <span class="block font-bold text-[#0E1925] dark:text-white">Entorno Operativo (Admin)</span>
+        <span class="block text-xs text-gray-500 dark:text-gray-400 mt-1">Acceso a directorios, features y configuraciones globales.</span>
+      </button>
+      <button type="submit" name="target_role" value="personal" 
+              class="flex-1 p-4 rounded-xl border-2 transition-all duration-200 text-left relative <%= !operating_as_internal_team? ? 'border-[#1C5686] bg-blue-50 dark:bg-[#1C5686]/10 cursor-default' : 'border-gray-200 dark:border-gray-800 hover:border-[#1C5686] cursor-pointer' %>" <%= !operating_as_internal_team? ? 'disabled' : '' %>>
+        <span class="block font-bold text-[#0E1925] dark:text-white">Usuario Estándar</span>
+        <span class="block text-xs text-gray-500 dark:text-gray-400 mt-1">Vista restringida por defecto. Gestiona tu propio patrimonio.</span>
+      </button>
+    </div>
+  <% end %>
+</section>

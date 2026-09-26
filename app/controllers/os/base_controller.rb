@@ -1,49 +1,59 @@
 class Os::BaseController < ::ApplicationController
-      before_action :authenticate_user!
-      before_action :ensure_account_not_suspended!
+  before_action :authenticate_user!
+  before_action :ensure_account_not_suspended!
 
-      include Pundit::Authorization
-      after_action :verify_authorized
+  include Pundit::Authorization
+  after_action :verify_authorized
 
-      layout "os"
+  layout "os"
 
-      rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
+  rescue_from Pundit::NotAuthorizedError, with: :user_not_authorized
 
-      helper_method :operating_as_super_admin?
+  helper_method :operating_as_internal_team?
 
-      protected
+  def switch_context
+    skip_authorization
+    context_id = params[:context_id]
 
-        def configure_permitted_parameters
-            devise_parameter_sanitizer.permit(:sign_up, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city ])
-            devise_parameter_sanitizer.permit(:account_update, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme ])
-        end
+    if context_id == "admin"
+      flash[:alert] = "El modo Admin solo puede activarse desde la sección de Configuración."
+    elsif context_id == "personal"
+      current_user.update_column(:current_context, "personal")
+      flash[:notice] = "Has cambiado a tu Perfil Personal."
+    elsif current_user.organization_roles.exists?(organization_id: context_id)
+      current_user.update_column(:current_context, context_id)
+      org = current_user.organizations.find(context_id)
+      flash[:notice] = "Entorno activo: #{org.name}."
+    else
+      flash[:alert] = "No tienes permisos para acceder a este entorno."
+    end
 
-      private
+    redirect_back(fallback_location: os_root_path)
+  end
 
-        def user_not_authorized
-          if ActiveModel::Type::Boolean.new.cast(ENV.fetch("USER_SHOULD_PAY", "false")) && !current_user&.active?
-            flash[:alert] = "Requieres una suscripción activa para acceder a Drivver OS."
-          else
-            flash[:alert] = "No tienes permisos para realizar esta acción o acceder a este módulo."
-          end
+  protected
 
-          redirect_to(request.referrer || root_path)
-        end
+  def configure_permitted_parameters
+    devise_parameter_sanitizer.permit(:sign_up, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city ])
+    devise_parameter_sanitizer.permit(:account_update, keys: [ :first_name, :last_name, :phone_number, :phone_country_code, :id_type, :id_number, :city, :theme ])
+  end
 
-        def ensure_account_not_suspended!
-          if !current_user.active?
-            sign_out current_user
-            flash[:alert] = "Tu cuenta ha sido suspendida por violar nuestras políticas."
-            redirect_to root_path
-          end
-        end
+  private
 
-        def user_not_authorized
-          flash[:alert] = "Tu plan actual no incluye esta funcionalidad o no tienes permisos."
-          redirect_to(request.referrer || os_root_path)
-        end
+  def user_not_authorized
+    flash[:alert] = "Tu entorno actual no incluye esta funcionalidad o no tienes permisos."
+    redirect_to(request.referrer || os_root_path)
+  end
 
-        def operating_as_super_admin?
-          current_user&.super_admin? || current_user&.developer?
-        end
+  def ensure_account_not_suspended!
+    if !current_user.active?
+      sign_out current_user
+      flash[:alert] = "Tu cuenta ha sido suspendida por violar nuestras políticas."
+      redirect_to root_path
+    end
+  end
+
+  def operating_as_internal_team?
+    current_user&.operating_in_admin_context?
+  end
 end

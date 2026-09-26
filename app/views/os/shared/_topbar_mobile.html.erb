@@ -1,0 +1,37 @@
+<header class="md:hidden flex items-center justify-between px-4 h-14 bg-white dark:bg-[#0A0A0A] border-b border-gray-200 dark:border-gray-800 shrink-0 z-40 relative">
+  <!-- Línea roja indicadora (Admin) -->
+  <% if current_context_ui[:id] != 'personal' %>
+    <div class="absolute top-0 left-0 w-full h-1 z-10" 
+         style="background-color: <%= current_context_ui[:color] %>;"></div>
+  <% end %>
+
+  <!-- Logo Sutil Izquierda -->
+  <%= link_to os_root_path, class: "flex items-center" do %>
+    <%= image_tag 'gradient-symbol.svg', alt: 'Drivver', class: "h-7 w-auto dark:hidden" %>
+    <%= image_tag 'wite-symbol.svg', alt: 'Drivver', class: "h-7 w-auto hidden dark:block" %>
+  <% end %>
+
+  <!-- Indicador Contexto Derecha (Solo Texto Coloreado) -->
+  <div data-controller="dropdown" class="relative">
+    <button type="button" data-action="click->dropdown#toggle" class="text-sm font-bold tracking-tight focus:outline-none cursor-pointer flex items-center gap-1" style="color: <%= current_context_ui[:color] %>;">
+      <span><%= current_context_ui[:name] %></span>
+      <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+    </button>
+
+    <!-- Menú Desplegable -->
+    <div data-dropdown-target="menu" class="hidden absolute right-0 mt-3 w-64 bg-white dark:bg-[#142436] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl p-2 z-50 flex flex-col gap-1">
+      <span class="block px-3 py-2 text-[10px] font-black uppercase text-gray-400">Entorno Operativo</span>
+      
+      <% available_contexts_ui.each do |ctx| %>
+        <%= link_to os_switch_context_path(context_id: ctx[:id]), data: { turbo_method: :post }, class: "w-full text-left flex items-center justify-between p-3 rounded-xl text-xs font-bold hover:bg-gray-100 dark:hover:bg-[#0E1925] transition-colors cursor-pointer #{current_context_ui[:id] == ctx[:id] ? 'bg-gray-100 dark:bg-[#0E1925]' : ''}" do %>
+          <span class="truncate" style="color: <%= ctx[:color] %>;"><%= ctx[:name] %></span>
+          
+          <% if current_context_ui[:id] == ctx[:id] %>
+            <div class="w-2 h-2 rounded-full shrink-0" style="background-color: <%= ctx[:color] %>;"></div>
+          <% end %>
+        <% end %>
+      <% end %>
+      
+    </div>
+  </div>
+</header>
