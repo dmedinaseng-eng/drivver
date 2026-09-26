@@ -7,10 +7,11 @@ RSpec.describe "OS dashboard", type: :request do
   end
 
   it "renders for an active signed-in user" do
-    user = create(:user)
+    user = create(:user, first_name: "Carlos")
     sign_in user
     get os_root_path
     expect(response).to have_http_status(:ok)
+    expect(response.body).to include("Bienvenido a Drivver OS, Carlos")
   end
 
   it "signs out suspended users" do

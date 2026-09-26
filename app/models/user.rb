@@ -44,7 +44,7 @@ class User < ApplicationRecord
 
     organizations.find_by(id: current_context)
   end
-  
+
   def active_context_name
     current_context.presence || "personal"
   end
@@ -76,7 +76,7 @@ class User < ApplicationRecord
   def operating_in_agency?
     active_organization&.org_type == "marketing_agency"
   end
-  
+
   def active_backoffice_type
     return "admin" if operating_in_admin_context?
     return "personal" if operating_in_personal_context?
@@ -132,5 +132,11 @@ class User < ApplicationRecord
       }
     )
     from_omniauth(auth)
+  end
+
+  private
+
+  def set_default_context
+    self.current_context = "personal" if current_context.blank?
   end
 end

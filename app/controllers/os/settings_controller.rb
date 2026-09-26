@@ -33,7 +33,7 @@ class Os::SettingsController < Os::BaseController
   end
 
   private
-  
+
       def user_params
         params.require(:user).permit(
           :first_name, :last_name, :phone_country_code, :phone_number,
@@ -42,4 +42,3 @@ class Os::SettingsController < Os::BaseController
         )
       end
 end
-  

@@ -30,6 +30,34 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe "operating context" do
+    it "defaults new users to the personal context" do
+      user = create(:user, current_context: nil)
+      expect(user.current_context).to eq("personal")
+      expect(user).to be_operating_in_personal_context
+      expect(user).not_to be_operating_in_org_context
+    end
+
+    it "treats admin context as internal-only" do
+      standard = create(:user, current_context: "admin")
+      admin = create(:user, :super_admin, current_context: "admin")
+
+      expect(standard).not_to be_operating_in_admin_context
+      expect(admin).to be_operating_in_admin_context
+    end
+
+    it "resolves the active organization from the current context" do
+      user = create(:user)
+      org = create(:organization, :workshop)
+      create(:organization_role, user: user, organization: org)
+      user.update!(current_context: org.id)
+
+      expect(user).to be_operating_in_org_context
+      expect(user.active_organization).to eq(org)
+      expect(user).to be_operating_in_workshop
+    end
+  end
+
   describe "#current_plan" do
     it "falls back to the basic plan" do
       plan = create(:plan, :basic)

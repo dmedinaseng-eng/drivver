@@ -12,6 +12,7 @@ FactoryBot.define do
     phone_country_code { "CO" }
     sequence(:phone_number) { |n| "300#{n.to_s.rjust(7, "0")}" }
     global_role { :standard }
+    current_context { "personal" }
 
     trait :google do
       provider { "google_oauth2" }

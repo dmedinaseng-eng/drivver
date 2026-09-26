@@ -52,12 +52,12 @@ FamilyMember.create!(family: family, user: member_2, role: "member", status: "ac
 puts "🚗 Creando Vehículos (Familia Drivver)..."
 # Vehículos del Super Admin
 car_sa = Vehicle.create!(
-  user: super_admin, family: family, plate: "DRV123", brand: "Toyota", model: "Prado", 
+  user: super_admin, family: family, plate: "DRV123", brand: "Toyota", model: "Prado",
   year: "2023", color: "Blanco", vehicle_type: "Camioneta", chasis_id: "CH-SA-001", motor_id: "MT-SA-001"
 )
 
 moto_sa = Vehicle.create!(
-  user: super_admin, family: family, plate: "MTO45C", brand: "BMW", model: "R1250GS", 
+  user: super_admin, family: family, plate: "MTO45C", brand: "BMW", model: "R1250GS",
   year: "2022", color: "Negro", vehicle_type: "Motocicleta", chasis_id: "CH-SA-002", motor_id: "MT-SA-002"
 )
 
@@ -77,11 +77,11 @@ end
 
 # Vehículos de la Familia
 car_m1 = Vehicle.create!(
-  user: member_1, family: family, plate: "FAM001", brand: "Mazda", model: "CX-5", 
+  user: member_1, family: family, plate: "FAM001", brand: "Mazda", model: "CX-5",
   year: "2021", color: "Rojo", vehicle_type: "Camioneta", chasis_id: "CH-M1-001", motor_id: "MT-M1-001"
 )
 car_m2 = Vehicle.create!(
-  user: member_2, family: family, plate: "FAM002", brand: "Volkswagen", model: "Golf", 
+  user: member_2, family: family, plate: "FAM002", brand: "Volkswagen", model: "Golf",
   year: "2019", color: "Gris", vehicle_type: "Automóvil", chasis_id: "CH-M2-001", motor_id: "MT-M2-001"
 )
 
@@ -109,7 +109,7 @@ puts "👤🚗🤝 Creando Empleados con sus Vehículos, Deals y Eventos..."
     first_name: Faker::Name.first_name, last_name: Faker::Name.last_name, email: Faker::Internet.unique.email, password: "password123",
     active: true, id_type: "CC", id_number: "200000000#{i}", phone_country_code: "CO", phone_number: "320000000#{i}", city: "Bogotá"
   )
-  
+
   # 2. Asignarlo a las organizaciones
   if i <= 2
     OrganizationRole.create!(organization: org_trade, user: emp, role_name: "Sales Agent")
@@ -121,19 +121,19 @@ puts "👤🚗🤝 Creando Empleados con sus Vehículos, Deals y Eventos..."
 
   # 3. Darle un vehículo (Notamos que 'family' es opcional en el modelo actual)
   emp_car = Vehicle.create!(
-    user: emp, plate: "EMP00#{i}", brand: "Ford", model: "Fiesta", 
+    user: emp, plate: "EMP00#{i}", brand: "Ford", model: "Fiesta",
     year: "201#{i}", color: "Azul", vehicle_type: "Automóvil", chasis_id: "CH-EMP-#{i}", motor_id: "MT-EMP-#{i}"
   )
 
   # 4. Crear un Deal para ese vehículo (Ej. org_trade le está comprando el carro al empleado)
   Deal.create!(
-    organization: org_trade, vehicle: emp_car, client: emp, 
+    organization: org_trade, vehicle: emp_car, client: emp,
     deal_type: "purchase", status: "open"
   )
 
   # 5. Crear un Evento para ese vehículo (Ej. Mantenimiento en org_shop)
   Event.create!(
-    organization: org_shop, vehicle: emp_car, user: emp, 
+    organization: org_shop, vehicle: emp_car, user: emp,
     event_type: "maintenance", status: "open", custody_flag: false, price_cents: 95000
   )
 end
@@ -142,37 +142,37 @@ puts "🤝 Creando Negocios y Eventos para el Super Admin y Familia..."
 
 # Venta (El super_admin vende su moto a ext_dealer)
 Deal.create!(
-  organization: ext_dealer, vehicle: moto_sa, client: super_admin, 
+  organization: ext_dealer, vehicle: moto_sa, client: super_admin,
   agent_seller_id: super_admin.id, deal_type: "sale", status: "open"
 )
 
 # Negocios de la familia
 Deal.create!(
-  organization: org_trade, vehicle: car_m1, client: member_1, 
+  organization: org_trade, vehicle: car_m1, client: member_1,
   deal_type: "sale", status: "pending"
 )
 Deal.create!(
-  organization: org_trade, vehicle: car_m2, client: member_2, 
+  organization: org_trade, vehicle: car_m2, client: member_2,
   deal_type: "purchase", status: "open"
 )
 
 # Eventos en Drivver Shop y Drivver Pimp
 Event.create!(
-  organization: org_shop, vehicle: car_sa, user: super_admin, 
+  organization: org_shop, vehicle: car_sa, user: super_admin,
   event_type: "maintenance", status: "in_progress", custody_flag: true, price_cents: 250000
 )
 Event.create!(
-  organization: org_pimp, vehicle: moto_sa, user: super_admin, 
+  organization: org_pimp, vehicle: moto_sa, user: super_admin,
   event_type: "detailing", status: "completed", custody_flag: false, price_cents: 80000
 )
 
 # Eventos en organizaciones externas y para otros usuarios
 Event.create!(
-  organization: ext_shop, vehicle: car_m1, user: member_1, 
+  organization: ext_shop, vehicle: car_m1, user: member_1,
   event_type: "maintenance", status: "open", custody_flag: true, price_cents: 120000
 )
 Event.create!(
-  organization: org_shop, vehicle: car_m2, user: member_2, 
+  organization: org_shop, vehicle: car_m2, user: member_2,
   event_type: "repair", status: "open", custody_flag: false, price_cents: 500000
 )
 
