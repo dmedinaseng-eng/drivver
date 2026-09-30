@@ -11,6 +11,12 @@ RSpec.describe User, type: :model do
   it { is_expected.to have_many(:family_members).dependent(:destroy) }
   it { is_expected.to have_many(:families).through(:family_members) }
   it { is_expected.to have_many(:subscriptions).dependent(:destroy) }
+  it { is_expected.to have_many(:events).dependent(:restrict_with_error) }
+  it { is_expected.to have_many(:notes).dependent(:destroy) }
+  it { is_expected.to have_many(:blog_reviews).dependent(:destroy) }
+  it { is_expected.to have_many(:deals).class_name("Deal").with_foreign_key("client_id").dependent(:destroy) }
+  it { is_expected.to have_many(:sales_deals).class_name("Deal").with_foreign_key("agent_seller_id") }
+  it { is_expected.to have_many(:purchase_deals).class_name("Deal").with_foreign_key("agent_buyer_id") }
   it { is_expected.to validate_presence_of(:email) }
 
   describe "#full_name" do
@@ -25,8 +31,10 @@ RSpec.describe User, type: :model do
       expect(build(:user)).not_to be_internal_team
     end
 
-    it "is true for super admins" do
+    it "is true for super admins, developers and c-level" do
       expect(build(:user, :super_admin)).to be_internal_team
+      expect(build(:user, :developer)).to be_internal_team
+      expect(build(:user, :c_level)).to be_internal_team
     end
   end
 

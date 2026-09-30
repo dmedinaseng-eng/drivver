@@ -23,6 +23,14 @@ FactoryBot.define do
       global_role { :super_admin }
     end
 
+    trait :developer do
+      global_role { :developer }
+    end
+
+    trait :c_level do
+      global_role { :c_level }
+    end
+
     trait :inactive do
       active { false }
     end

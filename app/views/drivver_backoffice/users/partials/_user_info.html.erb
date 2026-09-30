@@ -9,7 +9,7 @@
       <h2 class="text-lg font-black text-[#0E1925] dark:text-white tracking-tight leading-tight truncate">
         <%= user.try(:full_name) || user.try(:name) || "#{user.first_name} #{user.last_name}" %>
       </h2>
-      <p class="text-xs font-bold text-gray-400 mt-1">#<%= user.id %></p>
+      <p class="text-sm font-medium text-[#0E1925] dark:text-white"><%= user.try(:global_role)&.capitalize || 'Usuario Estandar' %></p>
     </div>
   </div>
 
@@ -52,21 +52,16 @@
         <p class="text-sm font-medium text-[#0E1925] dark:text-white capitalize"><%= user.try(:theme) || 'Light' %></p>
       </div>
     </div>
-
-    <div>
-      <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Global Role</p>
-      <p class="text-sm font-medium text-[#0E1925] dark:text-white"><%= user.try(:global_role)&.capitalize || 'Usuario Estandar' %></p>
-    </div>
   </div>
 
   <!-- Botón de Estado (Toggle) -->
   <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800">
     <div class="flex items-center justify-between mb-2">
-      <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Estado</p>
+      <p class="text-[12px] font-black text-gray-400 uppercase tracking-widest">Estado</p>
       <% if user.active? %>
-        <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-teal-600 bg-teal-50 dark:text-teal-400 dark:bg-teal-900/20 rounded-lg">Activa</span>
+        <span class="px-2 py-1 text-[12px] font-bold uppercase tracking-wider text-teal-600 bg-teal-50 dark:text-teal-400 dark:bg-teal-900/20 rounded-lg">Activa</span>
       <% else %>
-        <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/20 rounded-lg">Inactiva</span>
+        <span class="px-2 py-1 text-[12px] font-bold uppercase tracking-wider text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/20 rounded-lg">Inactiva</span>
       <% end %>
     </div>
     

@@ -10,14 +10,14 @@ module OsHelper
 
   def current_context_ui
     path = request.path
-    
-    if path.start_with?('/drivver_backoffice')
+
+    if path.start_with?("/drivver_backoffice")
       build_context_hash("drivver_backoffice", "Drivver Backoffice", "drivver_backoffice", drivver_backoffice_root_path)
-    elsif path.start_with?('/os/dealership')
+    elsif path.start_with?("/os/dealership")
       build_context_hash("dealership", "Concesionario", "dealership", os_dealership_root_path)
-    elsif path.start_with?('/os/workshop')
+    elsif path.start_with?("/os/workshop")
       build_context_hash("workshop", "Taller", "workshop", os_workshop_root_path)
-    elsif path.start_with?('/os/detailer')
+    elsif path.start_with?("/os/detailer")
       build_context_hash("detailer", "Detailing", "detailer_shop", os_detailer_root_path)
     else
       personal_name = current_user.full_name.presence || current_user.email.split("@").first
@@ -35,15 +35,15 @@ module OsHelper
 
     current_user.organizations.each do |org|
       url = case org.org_type
-            when "dealership"    then os_dealership_root_path
-            when "workshop"      then os_workshop_root_path
-            when "detailer_shop" then os_detailer_root_path
-            else os_root_path
-            end
-      
+      when "dealership"    then os_dealership_root_path
+      when "workshop"      then os_workshop_root_path
+      when "detailer_shop" then os_detailer_root_path
+      else os_root_path
+      end
+
       list << build_context_hash(org.id, org.name, org.org_type, url)
     end
-    
+
     list
   end
 
@@ -117,7 +117,7 @@ module OsHelper
   end
 
   def build_nav_item(title, short_title, path, icon_path_d, is_danger = false)
-    { title: title, short_title: short_title, path: path, is_danger: is_danger, 
+    { title: title, short_title: short_title, path: path, is_danger: is_danger,
       icon: "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"#{icon_path_d}\"/>" }
   end
 end
