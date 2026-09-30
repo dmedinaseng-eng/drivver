@@ -1,0 +1,75 @@
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-6 h-full flex flex-col">
+  
+  <!-- Encabezado Perfil -->
+  <div class="flex items-center gap-4 mb-6 border-b border-gray-100 dark:border-gray-800 pb-6">
+    <div class="w-14 h-14 rounded-full bg-blue-50 dark:bg-[#0E1925] flex items-center justify-center text-blue-600 dark:text-blue-400 text-xl font-black shrink-0 border border-blue-100 dark:border-gray-800">
+      <%= user.email[0].upcase %>
+    </div>
+    <div class="flex-1 overflow-hidden">
+      <h2 class="text-lg font-black text-[#0E1925] dark:text-white tracking-tight leading-tight truncate">
+        <%= user.try(:full_name) || user.try(:name) || "#{user.first_name} #{user.last_name}" %>
+      </h2>
+      <p class="text-sm font-medium text-[#0E1925] dark:text-white"><%= user.try(:global_role)&.capitalize || 'Usuario Estandar' %></p>
+    </div>
+  </div>
+
+  <!-- Lista de Información -->
+  <div class="flex flex-col gap-4 mb-6 flex-1">
+    
+    <div>
+      <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email</p>
+      <%= mail_to user.email, user.email, target: "_blank", class: "text-sm font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors break-all" %>
+    </div>
+
+    <div>
+      <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Teléfono</p>
+      <% if user.phone_country_code.present? && user.phone_number.present? %>
+        <% wa_number = "#{user.phone_country_code.to_s.gsub('+', '')}#{user.phone_number.to_s.gsub(/\D/, '')}" %>
+        <%= link_to "+#{user.phone_country_code} #{user.phone_number}", "https://wa.me/#{wa_number}", target: "_blank", class: "text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition-colors" %>
+      <% else %>
+        <span class="text-gray-400 dark:text-gray-600 italic text-sm">No registrado</span>
+      <% end %>
+    </div>
+
+    <div>
+      <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">ID (Documento)</p>
+      <p class="text-sm font-medium text-[#0E1925] dark:text-white">
+        <% if user.id_type.present? && user.id_number.present? %>
+          <span class="font-black text-gray-400 mr-1"><%= user.id_type %></span><%= user.id_number %>
+        <% else %>
+          <span class="text-gray-400 italic text-sm">No registrado</span>
+        <% end %>
+      </p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Ciudad</p>
+        <p class="text-sm font-medium text-[#0E1925] dark:text-white"><%= user.city.presence || 'N/A' %></p>
+      </div>
+      <div>
+        <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tema Activo</p>
+        <p class="text-sm font-medium text-[#0E1925] dark:text-white capitalize"><%= user.try(:theme) || 'Light' %></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Botón de Estado (Toggle) -->
+  <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[12px] font-black text-gray-400 uppercase tracking-widest">Estado</p>
+      <% if user.active? %>
+        <span class="px-2 py-1 text-[12px] font-bold uppercase tracking-wider text-teal-600 bg-teal-50 dark:text-teal-400 dark:bg-teal-900/20 rounded-lg">Activa</span>
+      <% else %>
+        <span class="px-2 py-1 text-[12px] font-bold uppercase tracking-wider text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/20 rounded-lg">Inactiva</span>
+      <% end %>
+    </div>
+    
+    <% if user.active? %>
+      <%= button_to "Desactivar Usuario", toggle_active_drivver_backoffice_user_path(user), method: :patch, class: "w-full py-2.5 text-xs font-black text-[#EF4444] bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded-xl transition-colors text-center border border-red-100 dark:border-red-900/30", form: { data: { turbo_confirm: "¿Suspender acceso a la plataforma?" } } %>
+    <% else %>
+      <%= button_to "Reactivar Usuario", toggle_active_drivver_backoffice_user_path(user), method: :patch, class: "w-full py-2.5 text-xs font-black text-teal-600 bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/20 dark:hover:bg-teal-900/40 rounded-xl transition-colors text-center border border-teal-100 dark:border-teal-900/30", form: { data: { turbo_confirm: "¿Reactivar acceso?" } } %>
+    <% end %>
+  </div>
+
+</div>

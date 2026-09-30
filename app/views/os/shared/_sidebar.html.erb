@@ -1,0 +1,27 @@
+<nav data-controller="sidebar" 
+     class="fixed z-50 flex transition-all duration-300 ease-in-out
+            bg-white text-[#0E1925] dark:bg-[#0A0A0A] dark:text-white
+            bottom-0 w-full h-16 flex-row justify-around items-center
+            shadow-[0_-4px_20px_rgba(14,25,37,0.05)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.3)]
+            md:top-0 md:left-0 md:h-screen md:flex-col md:justify-start
+            md:shadow-[4px_0_24px_rgba(14,25,37,0.06)] md:dark:shadow-[4px_0_24px_rgba(0,0,0,0.4)]
+            md:w-64"  
+     data-sidebar-target="container">
+  <% if current_context_ui[:id] != 'personal' %>
+    <div class="hidden md:block absolute top-0 right-0 w-1 h-full z-10" 
+         style="background-color: <%= current_context_ui[:color] %>; box-shadow: -2px 0 10px <%= current_context_ui[:color] %>4D;"></div>
+  <% end %>
+  <div class="hidden md:flex flex-col w-full p-4 bg-transparent shrink-0 border-b border-gray-100 dark:border-gray-800/60">
+    <div class="flex items-center justify-between w-full h-10">
+      <%= render 'os/shared/sidebar_logos' %>
+      <button type="button" data-action="click->sidebar#toggle" class="p-1.5 text-gray-400 hover:text-[#1C5686] dark:hover:text-white transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-[#142436] cursor-pointer" title="Alternar vista">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/>
+        </svg>
+      </button>
+    </div>
+    <%= render 'os/shared/context_selector_desktop' %>
+  </div>
+  <%= render 'os/shared/sidebar_nav_menu' %>
+  <%= render 'os/shared/sidebar_footer' %>
+</nav>

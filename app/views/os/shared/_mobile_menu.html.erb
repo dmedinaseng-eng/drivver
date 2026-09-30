@@ -1,0 +1,48 @@
+<% nav_menu = mobile_navigation_structure %>
+
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-white dark:bg-[#0A0A0A] border-t border-gray-200 dark:border-gray-800 z-50 pb-safe">
+  <div class="flex justify-around items-center h-16 px-1">
+    
+    <!-- Ítem Fijo 1: Inicio -->
+    <%= link_to os_root_path, class: "flex-1 flex flex-col items-center justify-center h-full space-y-1 transition-colors #{current_page?(os_root_path) ? 'text-[#1C5686] dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-[#1C5686] dark:hover:text-white'}" do %>
+      <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <span class="text-[10px] font-medium tracking-tight">Inicio</span>
+    <% end %>
+
+    <!-- Ítems Dinámicos Visibles -->
+    <% nav_menu[:visible].each do |item| %>
+      <%= link_to item[:path], class: "flex-1 flex flex-col items-center justify-center h-full space-y-1 transition-colors #{current_page?(item[:path]) ? 'text-[#1C5686] dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-[#1C5686] dark:hover:text-white'}" do %>
+        <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <%= raw item[:icon] %>
+        </svg>
+        <span class="text-[10px] font-medium tracking-tight truncate w-full text-center px-0.5"><%= item[:title] %></span>
+      <% end %>
+    <% end %>
+
+    <!-- Menú Desplegable 'Más' -->
+    <% if nav_menu[:overflow].any? %>
+      <div data-controller="dropdown" class="relative flex-1 h-full">
+        <!-- Botón 3 Puntos -->
+        <button type="button" data-action="click->dropdown#toggle" class="w-full h-full flex flex-col items-center justify-center space-y-1 text-gray-500 dark:text-gray-400 hover:text-[#1C5686] dark:hover:text-white focus:outline-none transition-colors">
+          <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"/>
+          </svg>
+          <span class="text-[10px] font-medium tracking-tight">Más</span>
+        </button>
+
+        <!-- Dropdown Flotante -->
+        <div data-dropdown-target="menu" class="hidden absolute bottom-full mb-4 right-4 w-52 bg-white dark:bg-[#142436] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl p-2 z-50 flex flex-col gap-1">
+          <% nav_menu[:overflow].each do |item| %>
+            <%= link_to item[:path], class: "w-full text-left flex items-center gap-3 p-3 rounded-xl text-xs font-bold text-[#0E1925] dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#0E1925] transition-colors #{current_page?(item[:path]) ? 'bg-gray-50 dark:bg-[#0E1925]' : ''}" do %>
+              <svg class="w-5 h-5 shrink-0 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <%= raw item[:icon] %>
+              </svg>
+              <span class="truncate"><%= item[:title] %></span>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+  </div>
+</nav>

@@ -1,0 +1,22 @@
+<div class="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-gray-800 rounded-3xl p-6 md:p-8 shadow-sm">
+  <h2 class="text-lg font-bold text-[#0E1925] dark:text-white mb-6 border-b border-gray-100 dark:border-gray-800 pb-2">Datos Personales</h2>
+  <%= simple_form_for(@user, url: os_settings_path, method: :patch) do |f| %>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <%= f.input :first_name, label: "Nombre" %>
+      <%= f.input :last_name, label: "Apellido" %>
+      
+      <%= f.input :id_type, collection: [["Cédula de Ciudadanía", "CC"], ["Cédula de Extranjería", "CE"], ["NIT", "NIT"], ["Pasaporte", "PP"]], label: "Tipo ID", prompt: "Seleccionar" %>
+      <%= f.input :id_number, label: "Número de Documento" %>
+      
+      <%= f.input :phone_country_code, as: :country, priority: %w[CO MX US ES AR PE CL EC], label: "País" %>
+      <%= f.input :phone_number, label: "Teléfono Móvil" %>
+      
+      <div class="md:col-span-2">
+        <%= f.input :city, label: "Ciudad" %>
+      </div>
+    </div>
+    <div class="mt-8 flex justify-end">
+      <%= f.button :submit, "Guardar Perfil", class: "px-6 py-3 bg-[#1C5686] hover:bg-blue-800 text-white rounded-xl font-bold text-xs uppercase tracking-wide shadow-md transition-all cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

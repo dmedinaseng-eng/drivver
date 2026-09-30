@@ -82,9 +82,10 @@ SimpleForm.setup do |config|
     b.use :hint, wrap_with: { tag: "p", class: "mt-1 text-xs text-gray-400 dark:text-gray-500" }
   end
 
-  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file }
+  config.wrapper_mappings = { select: :select, boolean: :boolean, text: :text, file: :file, country: :select }
   config.label_text = lambda { |label, required, _| required ? "#{label} <span class='text-[#EF4444] font-bold ml-0.5'>*</span>".html_safe : label }
   config.default_wrapper = :default
   config.boolean_style = :nested
-  config.error_notification_class = "p-3.5 mb-5 text-xs font-semibold bg-[#EF4444] text-white rounded-xl shadow-none"
+  config.error_notification_tag = :div
+  config.error_notification_class = "mb-6 p-4 bg-[#EF4444] text-white rounded-2xl shadow-md text-xs font-bold border border-red-700"
 end

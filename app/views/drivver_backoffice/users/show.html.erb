@@ -1,0 +1,42 @@
+<%= render 'drivver_backoffice/shared/header', 
+           title: "Radiografía de Usuario", 
+           breadcrumbs: [
+             { name: "Directorio", url: nil },
+             { name: "Usuarios", url: drivver_backoffice_users_path },
+             { name: (@user.try(:full_name) || @user.try(:name) || "#{@user.first_name} #{@user.last_name}").presence || @user.email, url: nil }
+           ] %>
+
+<div class="flex flex-col gap-6">
+  
+  <!-- FILA 1: 1/3 Información | 2/3 Familia y Organizaciones -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    
+    <!-- Columna Izquierda (1/3) -->
+    <div class="lg:col-span-1 h-full">
+      <%= render 'drivver_backoffice/users/partials/user_info', user: @user %>
+    </div>
+    
+    <!-- Columna Derecha (2/3) dividida en 2 filas -->
+    <div class="lg:col-span-2 flex flex-col gap-6">
+      <%= render 'drivver_backoffice/users/partials/user_families', user: @user %>
+      <%= render 'drivver_backoffice/users/partials/user_organizations', user: @user %>
+    </div>
+    
+  </div>
+
+  <!-- FILA 2: Garaje Virtual (Ancho Completo) -->
+  <div class="w-full">
+    <%= render 'drivver_backoffice/users/partials/user_vehicles', user_vehicles: @user_vehicles, family_vehicles: @family_vehicles %>
+  </div>
+
+  <!-- FILA 3: Historial de Deals (Ancho Completo) -->
+  <div class="w-full">
+    <%= render 'drivver_backoffice/users/partials/user_deals', active_deals: @active_deals, past_deals: @past_deals %>
+  </div>
+
+  <!-- FILA 4: Historial de Eventos (Ancho Completo) -->
+  <div class="w-full">
+    <%= render 'drivver_backoffice/users/partials/user_events', active_events: @active_events %>
+  </div>
+
+</div>

@@ -1,0 +1,88 @@
+<!-- Cabecera de Gráficas y Filtros -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+  <h2 class="text-lg font-black text-[#0E1925] dark:text-white tracking-tight">Tendencias de Crecimiento</h2>
+  
+  <!-- Formulario de Filtro Dinámico -->
+  <%= form_with url: drivver_backoffice_root_path, method: :get, class: "flex items-center gap-2 bg-white dark:bg-[#142436] p-1.5 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm", data: { turbo_frame: "_top" } do |f| %>
+    <span class="text-xs text-gray-500 dark:text-gray-400 font-bold px-2">Últimos</span>
+    
+    <%= f.number_field :range_value, value: @range_value, min: 1, class: "w-16 bg-gray-50 dark:bg-[#0E1925] border border-transparent focus:border-[#EF4444] text-[#0E1925] dark:text-white text-xs font-bold rounded-lg px-2 py-1.5 focus:outline-none transition-colors" %>
+    
+    <%= f.select :range_unit, options_for_select([['Días', 'days'], ['Semanas', 'weeks'], ['Meses', 'months'], ['Trimestres', 'quarters'], ['Años', 'years']], @range_unit), {}, class: "bg-gray-50 dark:bg-[#0E1925] border border-transparent focus:border-[#EF4444] text-[#0E1925] dark:text-white text-xs font-bold rounded-lg px-2 py-1.5 focus:outline-none transition-colors cursor-pointer" %>
+    
+    <%= f.submit "Filtrar", class: "px-4 py-1.5 bg-[#EF4444] hover:bg-red-600 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-sm" %>
+  <% end %>
+</div>
+
+<!-- Grid de Gráficas -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+  
+  <!-- Gráfica 1: Usuarios (Lineal) -->
+  <div class="bg-white dark:bg-[#142436] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></div>
+      <h3 class="text-sm font-bold text-[#0E1925] dark:text-white">Crecimiento de Usuarios</h3>
+    </div>
+    <div class="h-64 w-full">
+      <%= line_chart @users_growth,
+          colors: ["#3B82F6"],
+          curve: false,
+          points: true,
+          discrete: true,
+          empty: "No hay datos para este periodo",
+          dataset: { borderWidth: 3 },
+          library: { scales: { x: { grid: { display: false } } } } %>
+    </div>
+  </div>
+
+  <!-- Gráfica 2: Organizaciones (Lineal) -->
+  <div class="bg-white dark:bg-[#142436] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-3 h-3 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"></div>
+      <h3 class="text-sm font-bold text-[#0E1925] dark:text-white">Adquisición de Empresas</h3>
+    </div>
+    <div class="h-64 w-full">
+      <%= line_chart @orgs_growth,
+          colors: ["#A855F7"],
+          curve: false,
+          points: true,
+          discrete: true,
+          empty: "No hay datos para este periodo",
+          dataset: { borderWidth: 3 },
+          library: { scales: { x: { grid: { display: false } } } } %>
+    </div>
+  </div>
+
+  <!-- Gráfica 3: Vehículos (Lineal) -->
+  <div class="bg-white dark:bg-[#142436] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-3 h-3 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]"></div>
+      <h3 class="text-sm font-bold text-[#0E1925] dark:text-white">Registro de Vehículos</h3>
+    </div>
+    <div class="h-64 w-full">
+      <%= line_chart @vehicles_growth,
+          colors: ["#F97316"],
+          curve: false,
+          points: true,
+          discrete: true,
+          empty: "No hay datos para este periodo",
+          library: { scales: { x: { grid: { display: false } } } } %>
+    </div>
+  </div>
+
+  <!-- Gráfica 4: Negocios (Multi-serie Barras) -->
+  <div class="bg-white dark:bg-[#142436] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
+      <h3 class="text-sm font-bold text-[#0E1925] dark:text-white">Comportamiento de Deals</h3>
+    </div>
+    <div class="h-64 w-full">
+      <%= column_chart @deals_growth, 
+          colors: ["#10B981", "#3B82F6", "#F59E0B", "#6B7280"], 
+          stacked: false, 
+          empty: "No hay datos para este periodo",
+          library: { borderRadius: 2, scales: { x: { grid: { display: false } } } } %>
+    </div>
+  </div>
+
+</div>

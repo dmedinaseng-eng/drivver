@@ -1,0 +1,33 @@
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-6">
+  <div class="flex items-center gap-2 mb-4 border-b border-gray-100 dark:border-gray-800 pb-4">
+    <span class="text-xl">📅</span>
+    <h3 class="text-sm font-black text-[#0E1925] dark:text-white uppercase tracking-wider">Eventos Activos (Mantenimientos, Acciones)</h3>
+  </div>
+  
+  <% if active_events.any? %>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <% active_events.each do |event| %>
+        <div class="flex flex-col p-4 rounded-xl bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30">
+          <div class="flex justify-between items-start mb-3">
+            <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-900/40 rounded"><%= event.try(:status) || "En curso" %></span>
+            <%= link_to "Detalle", drivver_backoffice_event_path(event), class: "text-[10px] font-bold text-orange-600 dark:text-orange-400 hover:underline" %>
+          </div>
+          <h4 class="text-sm font-black text-[#0E1925] dark:text-white mb-2"><%= event.try(:event_type)&.capitalize || "Evento ##{event.id}" %></h4>
+          
+          <div class="flex flex-col gap-1.5 mt-auto pt-3 border-t border-orange-100 dark:border-orange-900/30">
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-bold text-gray-400 uppercase tracking-wider text-[9px]">Vehículo</span>
+              <span class="font-black text-gray-700 dark:text-gray-300"><%= event.vehicle.try(:plate) || "N/A" %></span>
+            </div>
+            <div class="flex justify-between items-center text-xs">
+              <span class="font-bold text-gray-400 uppercase tracking-wider text-[9px]">Org.</span>
+              <span class="font-bold text-[#0E1925] dark:text-gray-200 truncate ml-2 text-right"><%= event.try(:organization).try(:name) || "Org ##{event.organization_id}" %></span>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <p class="text-xs font-bold text-gray-400 italic text-center py-6">No hay eventos activos asociados a los vehículos de este usuario.</p>
+  <% end %>
+</div>

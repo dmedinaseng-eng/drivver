@@ -1,14 +1,14 @@
 <nav data-controller="dropdown" class="fixed top-0 left-0 w-full h-16 sm:h-20 flex items-center justify-between px-4 sm:px-6 md:px-20 z-50 bg-[#0E1925]/80 backdrop-blur-md border-b border-gray-800/50 shadow-lg">
   <%= link_to root_path, class: "flex items-center flex-shrink-0 group focus:outline-none overflow-hidden" do %>
     <span class="md:hidden text-2xl font-extrabold tracking-tight text-white transition-opacity duration-200 group-hover:opacity-80">
-      <img src="<%= image_path('simbolo-blanco.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
+      <img src="<%= image_path('wite-symbol.svg') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
     </span>
     <span class="hidden md:block text-2xl font-extrabold tracking-tight truncate text-white transition-opacity duration-200 group-hover:opacity-80">
-      <img src="<%= image_path('logo-horizontal.png') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
+      <img src="<%= image_path('wite-logo-h.svg') %>" alt="<%= t('navbar.public.logo_alt') %>" class="h-7 sm:h-8 md:h-10 w-auto object-contain">
     </span>    
   <% end %>
  <div class="hidden md:flex items-center justify-end gap-8 flex-shrink-0">
-    <%= link_to t('navbar.public.login'), "#", 
+    <%= link_to t('navbar.public.login'), new_user_session_path, 
         class: "text-base text-gray-300 hover:text-white font-semibold transition-colors duration-200 focus:outline-none" %>    
     <%= link_to navbar_cta, @cta_url, 
         target: "_blank", 

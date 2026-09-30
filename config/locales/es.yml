@@ -1,4 +1,59 @@
 es:
+  date:
+    abbr_day_names: [dom, lun, mar, mié, jue, vie, sáb]
+    day_names: [domingo, lunes, martes, miércoles, jueves, viernes, sábado]
+    abbr_month_names: [~, ene, feb, mar, abr, may, jun, jul, ago, sep, oct, nov, dic]
+    month_names: [~, enero, febrero, marzo, abril, mayo, junio, julio, agosto, septiembre, octubre, noviembre, diciembre]
+  simple_form:
+    error_notification:
+      default_message: "Por favor revisa los errores señalados a continuación:"
+  errors:
+    messages:
+      not_saved:
+        one: "1 error impidió guardar este %{resource}:"
+        other: "%{count} errores impidieron guardar este %{resource}:"
+      blank: "no puede estar en blanco"
+      taken: "ya ha sido registrado"
+      invalid: "no es válido"
+      too_short: "es demasiado corto (mínimo %{count} caracteres)"
+      confirmation: "no coincide con la contraseña"
+  activerecord:
+    errors:
+      messages:
+        record_invalid: 'La validación falló: %{errors}'
+        restrict_dependent_destroy:
+          has_one: "No se puede eliminar el registro porque existe un %{record} dependiente"
+          has_many: "No se puede eliminar el registro porque existen %{record} dependientes"
+      models:
+        user:
+          attributes:
+            email:
+              blank: "El correo electrónico no puede estar en blanco"
+              taken: "Este correo electrónico ya está registrado"
+            password:
+              blank: "La contraseña no puede estar en blanco"
+            first_name:
+              blank: "El nombre no puede estar en blanco"
+            last_name:
+              blank: "El apellido no puede estar en blanco"
+            id_number:
+              blank: "El número de documento no puede estar en blanco"
+            phone_number:
+              blank: "El número de teléfono no puede estar en blanco"
+  devise:
+    failure:
+      already_authenticated: "Ya has iniciado sesión."
+      unauthenticated: "Necesitas iniciar sesión o registrarte para continuar."
+      invalid: "%{authentication_keys} o contraseña no válidos."
+    registrations:
+      signed_up: "¡Bienvenido! Te has registrado correctamente."
+      updated: "Tu cuenta ha sido actualizada."
+  auth:
+    google:
+      continue: "Continuar con Google"
+      sign_up: "Registrarme con Google"
+      success: "Inicio de sesión exitoso con Google."
+      failure: "No se pudo autenticar con Google."
   layouts:
     application:
       title: "Drivver"
@@ -7,6 +62,8 @@ es:
       login: "Iniciar sesión"
       logo_alt: "Drivver"
       menu: "Menú"
+      cta: "Contáctanos"
+      whatsapp_message: "Hola, quiero contactar a Drivver."
       sellers:
         cta: "Vender mi vehículo"
       buyers:
