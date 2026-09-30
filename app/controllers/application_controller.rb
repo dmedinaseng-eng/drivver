@@ -1,4 +1,6 @@
 class ApplicationController < ActionController::Base
+  include Pagy::Method
+
   allow_browser versions: :modern
   stale_when_importmap_changes
 
@@ -21,6 +23,7 @@ class ApplicationController < ActionController::Base
 
   def use_spanish_locale
     I18n.locale = :es
+    Pagy::I18n.locale = :es
   end
 
   def set_whatsapp_cta

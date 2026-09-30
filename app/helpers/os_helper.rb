@@ -2,32 +2,48 @@ module OsHelper
   # Diccionario central de diseño por vertical operativa (Sistema 1 neurocognitivo)
   CONTEXT_UI = {
     "personal"         => { emoji: "👤", color: "#0033CC" },
-    "admin"            => { emoji: "🚨", color: "#EF4444" },
+    "drivver_backoffice"            => { emoji: "🚨", color: "#EF4444" },
     "dealership"       => { emoji: "🏢", color: "#2D9BD2" },
     "workshop"         => { emoji: "🔧", color: "#8A2BE2" },
-    "detailer_shop"    => { emoji: "✨", color: "#8B008B" },
-    "marketing_agency" => { emoji: "💼", color: "#008080" }
+    "detailer_shop"    => { emoji: "✨", color: "#8B008B" }
   }.freeze
 
   def current_context_ui
-    if current_user.operating_in_admin_context?
-      build_context_hash("admin", "Admin Mode", "admin")
-    elsif current_user.operating_in_org_context?
-      org = current_user.active_organization
-      build_context_hash(org.id, org.name, org.org_type)
+    path = request.path
+    
+    if path.start_with?('/drivver_backoffice')
+      build_context_hash("drivver_backoffice", "Drivver Backoffice", "drivver_backoffice", drivver_backoffice_root_path)
+    elsif path.start_with?('/os/dealership')
+      build_context_hash("dealership", "Concesionario", "dealership", os_dealership_root_path)
+    elsif path.start_with?('/os/workshop')
+      build_context_hash("workshop", "Taller", "workshop", os_workshop_root_path)
+    elsif path.start_with?('/os/detailer')
+      build_context_hash("detailer", "Detailing", "detailer_shop", os_detailer_root_path)
     else
       personal_name = current_user.full_name.presence || current_user.email.split("@").first
-      build_context_hash("personal", personal_name, "personal")
+      build_context_hash("personal", personal_name, "personal", os_root_path)
     end
   end
 
   def available_contexts_ui
     personal_name = current_user.full_name.presence || current_user.email.split("@").first
-    list = [ build_context_hash("personal", personal_name, "personal") ]
+    list = [ build_context_hash("personal", personal_name, "personal", os_root_path) ]
+
+    if current_user.internal_team?
+      list << build_context_hash("drivver_backoffice", "Drivver Backoffice", "drivver_backoffice", drivver_backoffice_root_path)
+    end
 
     current_user.organizations.each do |org|
-      list << build_context_hash(org.id, org.name, org.org_type)
+      url = case org.org_type
+            when "dealership"    then os_dealership_root_path
+            when "workshop"      then os_workshop_root_path
+            when "detailer_shop" then os_detailer_root_path
+            else os_root_path
+            end
+      
+      list << build_context_hash(org.id, org.name, org.org_type, url)
     end
+    
     list
   end
 
@@ -95,8 +111,13 @@ module OsHelper
 
   private
 
-  def build_context_hash(id, name, type)
-    ui = CONTEXT_UI[type] || CONTEXT_UI["marketing_agency"]
-    { id: id, name: name, emoji: ui[:emoji], color: ui[:color] }
+  def build_context_hash(id, name, type, url)
+    ui = CONTEXT_UI[type] || CONTEXT_UI["personal"]
+    { id: id, name: name, emoji: ui[:emoji], color: ui[:color], url: url }
+  end
+
+  def build_nav_item(title, short_title, path, icon_path_d, is_danger = false)
+    { title: title, short_title: short_title, path: path, is_danger: is_danger, 
+      icon: "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"#{icon_path_d}\"/>" }
   end
 end

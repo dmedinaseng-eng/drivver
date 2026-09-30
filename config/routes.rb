@@ -12,10 +12,30 @@ Rails.application.routes.draw do
     resource :settings, only: [ :show, :update ]
 
     post "switch_context", to: "base#switch_context", as: :switch_context
+
+    namespace :dealership do
+      root to: "dashboards#show"
+    end
+
+    namespace :workshop do
+      root to: "dashboards#show"
+    end
+
+    namespace :detailer do
+      root to: "dashboards#show"
+    end
   end
 
-  namespace :admin do
-    resources :effective_roles, only: [ :create ]
+  namespace :drivver_backoffice do
+    root to: "dashboards#show"
+    resources :users do
+      patch :toggle_active, on: :member # <--- Agrega esta línea
+    end
+    resources :organizations
+    resources :vehicles
+    resources :deals
+    resources :events
+    resources :blog_posts
   end
 
   namespace :users do

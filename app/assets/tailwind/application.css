@@ -57,23 +57,27 @@
   }
 }
 
-/* Estilos personalizados para la paginación de Pagy */
-.pagy {
-  @apply flex items-center justify-center space-x-1 font-semibold text-sm text-gray-500 my-4;
+/* Paginación Pagy 43: nav.pagy.series-nav y span.pagy.info */
+.pagy.series-nav {
+  @apply flex items-center justify-center gap-1 text-sm font-semibold text-gray-500 dark:text-gray-400;
 }
 
-.pagy a:not(.gap) {
-  @apply block rounded-xl px-3 py-1.5 bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 hover:text-black;
+.pagy.series-nav a:not([role="separator"]) {
+  @apply block rounded-xl px-3 py-1.5 bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 hover:text-[#0E1925] dark:bg-[#142436] dark:text-gray-200 dark:hover:bg-[#1C304A] dark:hover:text-white;
 }
 
-.pagy a:not([href]) {
-  @apply text-gray-300 bg-gray-50 cursor-not-allowed hover:bg-gray-50 hover:text-gray-300;
+.pagy.series-nav a[aria-disabled="true"]:not([aria-current]):not([role="separator"]) {
+  @apply text-gray-300 bg-gray-50 cursor-not-allowed hover:bg-gray-50 hover:text-gray-300 dark:text-gray-600 dark:bg-[#0E1925] dark:hover:bg-[#0E1925] dark:hover:text-gray-600;
 }
 
-.pagy a.current {
-  @apply text-white bg-black pointer-events-none hover:bg-black hover:text-white;
+.pagy.series-nav a[aria-current="page"] {
+  @apply text-white bg-[#EF4444] pointer-events-none hover:bg-[#EF4444] hover:text-white;
 }
 
-.pagy .gap {
-  @apply px-2;
+.pagy.series-nav a[role="separator"] {
+  @apply bg-transparent px-2 text-gray-400 dark:text-gray-500;
+}
+
+.pagy.info {
+  @apply text-xs font-medium text-gray-500 dark:text-gray-400;
 }

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full <%= current_user&.theme == 'dark' ? 'dark' : '' %>">
+  <head>
+    <title>Drivver Admin</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= render "shared/fonts" %>
+    <%= stylesheet_link_tag "tailwind", "data-turbo-track": "reload" %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body class="bg-[#F8F9FA] dark:bg-[#050B14] antialiased flex flex-col min-h-screen">
+    <%= render 'drivver_backoffice/shared/navbar' %>
+    <main id="main-content" class="flex-1 w-full max-w-[1400px] mx-auto p-4 md:p-8 pt-6">
+      <%= render 'shared/flash' %>
+      <%= yield %>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,66 @@
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-6">
+  <div class="flex items-center justify-between mb-4 border-b border-gray-100 dark:border-gray-800 pb-4">
+    <div class="flex items-center gap-2">
+      <span class="text-xl">💼</span>
+      <h3 class="text-sm font-black text-[#0E1925] dark:text-white uppercase tracking-wider">Historial de Negocios (Deals)</h3>
+    </div>
+    <div class="flex gap-4 text-xs font-bold">
+      <span class="text-emerald-600 dark:text-emerald-400"><%= active_deals.count %> Activos</span>
+      <span class="text-gray-400"><%= past_deals.count %> Pasados</span>
+    </div>
+  </div>
+
+  <% if active_deals.any? || past_deals.any? %>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm text-left">
+        <thead class="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-widest border-b border-gray-100 dark:border-gray-800">
+          <tr>
+            <th class="px-4 py-3 font-black">ID Negocio</th>
+            <th class="px-4 py-3 font-black">Tipo</th>
+            <th class="px-4 py-3 font-black">Estado</th>
+            <th class="px-4 py-3 font-black">Organización</th>
+            <th class="px-4 py-3 font-black text-right">Acción</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+          <!-- Activos Primero -->
+          <% active_deals.each do |deal| %>
+            <tr class="bg-emerald-50/30 dark:bg-emerald-900/10 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
+              <td class="px-4 py-3 font-black text-emerald-700 dark:text-emerald-400">#<%= deal.id %></td>
+              <td class="px-4 py-3 font-bold text-[#0E1925] dark:text-white capitalize"><%= deal.try(:deal_type) || "Desconocido" %></td>
+              <td class="px-4 py-3">
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/40 rounded border border-emerald-200 dark:border-emerald-800/50">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Activo
+                </span>
+              </td>
+              <td class="px-4 py-3 text-xs text-gray-600 dark:text-gray-300"><%= deal.try(:organization).try(:name) || "Org ##{deal.organization_id}" %></td>
+              <td class="px-4 py-3 text-right">
+                <%= link_to "Gestionar", drivver_backoffice_deal_path(deal), class: "text-xs font-bold text-[#EF4444] hover:underline" %>
+              </td>
+            </tr>
+          <% end %>
+
+          <!-- Pasados -->
+          <% past_deals.each do |deal| %>
+            <tr class="hover:bg-gray-50 dark:hover:bg-[#1C304A] transition-colors">
+              <td class="px-4 py-3 font-bold text-gray-500 dark:text-gray-400">#<%= deal.id %></td>
+              <td class="px-4 py-3 font-medium text-gray-600 dark:text-gray-300 capitalize"><%= deal.try(:deal_type) || "Desconocido" %></td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 dark:text-gray-400 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+                  <%= deal.try(:status) || "Cerrado" %>
+                </span>
+              </td>
+              <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400"><%= deal.try(:organization).try(:name) || "Org ##{deal.organization_id}" %></td>
+              <td class="px-4 py-3 text-right">
+                <%= link_to "Ver", drivver_backoffice_deal_path(deal), class: "text-xs font-bold text-gray-400 hover:text-white hover:underline" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <p class="text-xs font-bold text-gray-400 italic text-center py-6">Este usuario no tiene un historial de negocios.</p>
+  <% end %>
+</div>

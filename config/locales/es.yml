@@ -1,4 +1,9 @@
 es:
+  date:
+    abbr_day_names: [dom, lun, mar, mié, jue, vie, sáb]
+    day_names: [domingo, lunes, martes, miércoles, jueves, viernes, sábado]
+    abbr_month_names: [~, ene, feb, mar, abr, may, jun, jul, ago, sep, oct, nov, dic]
+    month_names: [~, enero, febrero, marzo, abril, mayo, junio, julio, agosto, septiembre, octubre, noviembre, diciembre]
   simple_form:
     error_notification:
       default_message: "Por favor revisa los errores señalados a continuación:"

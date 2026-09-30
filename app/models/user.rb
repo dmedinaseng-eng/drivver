@@ -20,6 +20,9 @@ class User < ApplicationRecord
   has_many :events, dependent: :restrict_with_error
   has_many :notes, dependent: :destroy
   has_many :blog_reviews, dependent: :destroy
+  has_many :deals, class_name: 'Deal', foreign_key: 'client_id', dependent: :destroy
+  has_many :sales_deals, class_name: 'Deal', foreign_key: 'agent_seller_id'
+  has_many :purchase_deals, class_name: 'Deal', foreign_key: 'agent_buyer_id'
 
   validates :email, presence: true, uniqueness: { case_sensitive: false }
 

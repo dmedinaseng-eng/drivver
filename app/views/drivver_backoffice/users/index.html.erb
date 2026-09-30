@@ -1,0 +1,79 @@
+<%= render 'drivver_backoffice/shared/header', 
+           title: "Directorio de Usuarios", 
+           breadcrumbs: [
+             { name: "Directorio", url: nil },
+             { name: "Usuarios", url: nil }
+           ] %>
+
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm text-left">
+      <thead class="text-xs text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-[#0E1925] border-b border-gray-100 dark:border-gray-800">
+        <tr>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Nombre Completo</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Email</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Teléfono</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Documento</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Ciudad</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight">Estado</th>
+          <th scope="col" class="px-6 py-4 font-black tracking-tight text-right">Acción</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+        <% @users.each do |user| %>
+          <tr class="hover:bg-gray-50 dark:hover:bg-[#1C304A] transition-colors">
+            
+            <td class="px-6 py-4 font-bold text-[#0E1925] dark:text-white">
+              <%= user.try(:full_name) || user.try(:name) || "#{user.first_name} #{user.last_name}" %>
+            </td>
+            
+            <td class="px-6 py-4 font-medium">
+              <%= mail_to user.email, user.email, target: "_blank", class: "text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors" %>
+            </td>
+            
+            <td class="px-6 py-4 font-medium">
+              <% if user.phone_country_code.present? && user.phone_number.present? %>
+                <% wa_number = "#{user.phone_country_code.to_s.gsub('+', '')}#{user.phone_number.to_s.gsub(/\D/, '')}" %>
+                <%= link_to "+#{user.phone_country_code} #{user.phone_number}", "https://wa.me/#{wa_number}", target: "_blank", class: "text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition-colors font-bold" %>
+              <% else %>
+                <span class="text-gray-400 dark:text-gray-600 italic text-xs">No registrado</span>
+              <% end %>
+            </td>
+            
+            <td class="px-6 py-4 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">
+              <% if user.id_type.present? && user.id_number.present? %>
+                <span class="text-xs font-black text-gray-400 dark:text-gray-500 mr-1"><%= user.id_type %></span><%= user.id_number %>
+              <% else %>
+                <span class="text-gray-400 dark:text-gray-600 italic text-xs">N/A</span>
+              <% end %>
+            </td>
+            
+            <td class="px-6 py-4 text-gray-500 dark:text-gray-400">
+              <%= user.city.presence || '<span class="text-gray-400 dark:text-gray-600 italic text-xs">N/A</span>'.html_safe %>
+            </td>
+            
+            <td class="px-6 py-4">
+              <% if user.active? %>
+                <span class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-teal-600 bg-teal-50 dark:text-teal-400 dark:bg-teal-900/20 rounded-lg border border-teal-100 dark:border-teal-800/50">Activo</span>
+              <% else %>
+                <span class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-800/50">Inactivo</span>
+              <% end %>
+            </td>
+            
+            <td class="px-6 py-4 text-right">
+              <%= link_to "Ver", drivver_backoffice_user_path(user), class: "text-xs font-bold text-[#EF4444] hover:text-red-600 dark:hover:text-red-400 transition-colors" %>
+            </td>
+            
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex flex-col items-center gap-3 bg-gray-50 dark:bg-[#0E1925]">
+    <%== @pagy.info_tag(item_name: @pagy.count == 1 ? "usuario" : "usuarios") %>
+    <% if @pagy.pages > 1 %>
+      <%== @pagy.series_nav %>
+    <% end %>
+  </div>
+</div>

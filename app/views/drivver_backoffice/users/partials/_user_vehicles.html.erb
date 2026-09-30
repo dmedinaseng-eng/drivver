@@ -1,0 +1,36 @@
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-6">
+  <div class="flex items-center gap-2 mb-4 border-b border-gray-100 dark:border-gray-800 pb-4">
+    <span class="text-xl">🚘</span>
+    <h3 class="text-sm font-black text-[#0E1925] dark:text-white uppercase tracking-wider">Garaje Virtual</h3>
+  </div>
+  
+  <% if user_vehicles.any? || family_vehicles.any? %>
+    <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
+      <!-- Vehículos a su nombre -->
+      <% user_vehicles.each do |vehicle| %>
+        <div class="flex flex-col p-4 rounded-xl bg-blue-50/30 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30">
+          <div class="flex justify-between items-start mb-2">
+            <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/40 rounded">Propietario</span>
+            <%= link_to "Ver", drivver_backoffice_vehicle_path(vehicle), class: "text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline" %>
+          </div>
+          <p class="text-lg font-black text-[#0E1925] dark:text-white tracking-widest"><%= vehicle.try(:plate) || "N/A" %></p>
+          <p class="text-xs font-medium text-gray-500 mt-1 truncate"><%= vehicle.try(:brand) %> <%= vehicle.try(:model) %> <%= vehicle.try(:year) %></p>
+        </div>
+      <% end %>
+
+      <!-- Vehículos de Familia -->
+      <% family_vehicles.each do |vehicle| %>
+        <div class="flex flex-col p-4 rounded-xl bg-gray-50 dark:bg-[#0E1925] border border-gray-100 dark:border-gray-800/50">
+          <div class="flex justify-between items-start mb-2">
+            <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-200 dark:text-gray-400 dark:bg-gray-800 rounded">Familiar</span>
+            <%= link_to "Ver", drivver_backoffice_vehicle_path(vehicle), class: "text-[10px] font-bold text-gray-400 hover:underline" %>
+          </div>
+          <p class="text-lg font-black text-gray-600 dark:text-gray-300 tracking-widest"><%= vehicle.try(:plate) || "N/A" %></p>
+          <p class="text-xs font-medium text-gray-500 mt-1 truncate"><%= vehicle.try(:brand) %> <%= vehicle.try(:model) %> <%= vehicle.try(:year) %></p>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <p class="text-xs font-bold text-gray-400 italic text-center py-6">El garaje de este usuario está vacío.</p>
+  <% end %>
+</div>

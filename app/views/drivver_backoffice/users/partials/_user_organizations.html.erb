@@ -1,0 +1,31 @@
+<div class="bg-white dark:bg-[#142436] border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-6">
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-xl">🏢</span>
+    <h3 class="text-sm font-black text-[#0E1925] dark:text-white uppercase tracking-wider">Organizaciones Vinculadas</h3>
+  </div>
+  
+  <% if user.organization_roles.any? %>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <% user.organization_roles.each do |role| %>
+        <div class="p-4 rounded-xl bg-gray-50 dark:bg-[#0E1925] border border-gray-100 dark:border-gray-800/50 flex flex-col justify-between">
+          <div class="flex justify-between items-start mb-2">
+            <p class="text-sm font-black text-[#0E1925] dark:text-white truncate pr-2"><%= role.organization.try(:name) || "Org ##{role.organization_id}" %></p>
+            <%= link_to "Ver Org", drivver_backoffice_organization_path(role.organization), class: "text-[10px] font-bold text-[#EF4444] hover:underline shrink-0 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded" %>
+          </div>
+          <div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+            <p class="text-[10px] font-medium text-gray-500">Rol: <span class="font-bold text-[#0E1925] dark:text-white"><%= role.try(:role_name)&.capitalize || 'Miembro' %></span></p>
+            <% if role.try(:status) == 'active' || role.try(:active?) || role.try(:status).nil? %>
+              <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-teal-600 bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 rounded">Activo</span>
+            <% else %>
+              <span class="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-200 dark:text-gray-400 dark:bg-gray-800 rounded">Histórico</span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="bg-gray-50 dark:bg-[#0E1925] rounded-xl p-4 text-center border border-gray-100 dark:border-gray-800/50">
+      <p class="text-xs font-bold text-gray-400 italic">No tiene vínculos activos con organizaciones.</p>
+    </div>
+  <% end %>
+</div>
