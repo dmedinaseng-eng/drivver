@@ -51,7 +51,7 @@ gem "groupdate", "~> 6.8"
 # MÁQUINA DE ESTADOS & ALMACENAMIENTO (AWS S3 / ACTIVE STORAGE)
 # ===================================================================
 gem "aasm", "~> 6.0"
-gem "aws-sdk-s3", "~> 1.229"
+gem "aws-sdk-s3", "~> 1.232"
 gem "image_processing", "~> 1.2"
 
 # ===================================================================
