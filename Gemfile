@@ -23,7 +23,7 @@ gem "solid_cable"
 
 # Serialización y utilidades
 gem "jbuilder"
-gem "json", "~> 2.13"
+gem "json", "~> 3.0"
 gem "friendly_id"
 
 # ===================================================================
